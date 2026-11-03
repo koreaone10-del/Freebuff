@@ -1374,7 +1374,10 @@ const VD = {
   narration: true,
   music: true,
   running: false,
-  blob: null
+  blob: null,
+  // ▔▔▔ فهرس «عنوان» لملفات WebM الحية: كل مشاهد يؤشر على الدقائق:ثواني ذاتها،
+  // فيفكّر Video (أو مشغّل آخر) في لحظة العرض بينما المشهد مرتبط، دون قراءة كاملة.
+  sceneMarks: []
 };
 const VD_SIZE = { "16:9": [1280, 720], "9:16": [720, 1280], "1:1": [960, 960] };
 const VD_STYLE_PROMPT = {
@@ -1392,6 +1395,8 @@ function vdOpen(prompt) {
   $("#vdLines").innerHTML = "";
   vdBar(0);
   vdSetFormat();
+  VD.sceneMarks = [];
+  $(`#vdMarkList`).innerHTML = "<div class=\"vd-mark-empty\">⏳ انتظر بثّ الفيديو ليظهر المؤشرات هنا…</div>";
   $("#videoOverlay").classList.add("open");
   setTimeout(() => $("#vdTopic").focus(), 120);
 }
@@ -1401,6 +1406,14 @@ function vdLine(text, state) {
   d.className = "sline " + (state || "");
   d.innerHTML = `<div class="si">${state === "done" ? "✓" : ""}</div><div>${esc(text)}</div>`;
   $("#vdLines").appendChild(d);
+  return d;
+}
+
+function vdMarkRow(mark) {
+  const d = document.createElement("div");
+  d.className = "vd-mark" + (mark.active ? " on" : "");
+  d.innerHTML = `<div class="vd-mark-dot"></div><div><b>${esc(mark.label)}</b><span class=\"vd-mark-time\">${esc(mark.t)}</span></div>`;
+  $("#vdMarkList").appendChild(d);
   return d;
 }
 function vdBar(p) {
@@ -1746,7 +1759,13 @@ async function vdRecord({ plan, images, narrations, W, H }) {
       const e = Math.max(0, Math.min(raw, total));
       vdPaint(ctx, { plan, images, starts, durs, total, el: e, W, H });
       vdBar(0.78 + 0.2 * (e / total));
-      if (raw >= total) { res(); return; }
+      if (raw >= total) {
+        VD.sceneMarks.forEach(m => { m.active = false; });
+        res();
+        return;
+      }
+      const s = VD.sceneMarks.find(m => e >= m.t);
+      VD.sceneMarks.forEach(m => m.active = m.t === s?.t);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -1776,11 +1795,11 @@ function vdShowResult(plan, res) {
         <button class="mini-btn" id="vdDl">⬇ تنزيل</button>
         <button class="mini-btn" id="vdToChat">💬 أضِف للمحادثة</button>
       </div>
-      ${ext === "mp4"
-        ? '<div class="vfb-note">✓ MP4 جاهز للمشاركة كما هو — بلا تحويل ولا محوّل خارجي.</div>'
-        : '<div class="vfb-note warn">هذا المتصفح لا يسجّل MP4 مباشرة، فحُفظ الفيديو WebM. افتح الصفحة في Chrome أو Edge أو Safari للحصول على MP4 بضغطة واحدة.</div>'}
       ${res.metaFixed ? '<div class="vfb-note">✓ صُحّحت المدة والطوابع الزمنية داخل الملف، فيظهر طوله صحيحاً في المشغّلات والمحرّرات.</div>' : ''}
+      <div id="vdMarkList"></div>
     </div>`;
+  if (VD.sceneMarks.length) for (const m of VD.sceneMarks) vdMarkRow(m);
+  $("#vdDl").onclick = () => {
   $("#vdDl").onclick = () => {
     const a = document.createElement("a");
     a.href = url;
@@ -1825,11 +1844,14 @@ async function vdRun() {
 
     const l1 = vdLine("📝 كتابة السيناريو وخطة المشاهد...", "act");
     const plan = await vdPlan(topic, VD.scenes);
+    if (VD.sceneMarks.length !== plan.scenes.length) VD.sceneMarks = [];
     l1.className = "sline done";
     l1.innerHTML = `<div class="si">✓</div><div>«${esc(plan.title)}» — ${plan.scenes.length} مشاهد · ${esc(plan.provider || "")}</div>`;
     vdBar(0.08);
 
     const l2 = vdLine("🎨 رسم المشاهد بصرياً بصور مجانية...", "act");
+    for (let i = 0; i < plan.scenes.length; i++) VD.sceneMarks.push({ label: plan.scenes[i].title || `مشاهد ${i + 1}`, t: 0 });
+    vdMarkRow(VD.sceneMarks[0]);
     const images = [];
     for (let i = 0; i < plan.scenes.length; i++) {
       const seed = Math.floor(Math.random() * 1e9);
@@ -1843,6 +1865,7 @@ async function vdRun() {
     const narrations = [];
     if (VD.narration) {
       const l3 = vdLine("🎙️ تسجيل التعليق الصوتي العربي...", "act");
+      for (let i = 0; i < plan.scenes.length; i++) VD.sceneMarks[i].t = 0;
       for (let i = 0; i < plan.scenes.length; i++) {
         narrations.push(await vdTTS(plan.scenes[i].narration));
         vdBar(0.63 + 0.13 * ((i + 1) / plan.scenes.length));
@@ -1855,6 +1878,11 @@ async function vdRun() {
     const l4 = vdLine("🎬 المونتاج والتسجيل — أبقِ التبويب مفتوحاً", "act");
     const res = await vdRecord({ plan, images, narrations, W, H });
     const fixer = res.ext === "mp4" ? window.VD_MP4 : res.ext === "webm" ? window.VD_WEBM : null;
+    if (res.blob && VD.sceneMarks.length === plan.scenes.length) {
+      const total = res.duration || 0;
+      for (let i = 0; i < plan.scenes.length; i++) VD.sceneMarks[i].t = Math.round((total / plan.scenes.length) * (i + 0.5) * 10) / 10;
+      if (VD.sceneMarks[0].t < 0.5) VD.sceneMarks[0].t = 0.3;
+    }
     if (fixer) {
       try {
         const fx = fixer.fixDuration(await res.blob.arrayBuffer(), res.duration);
@@ -1877,4 +1905,6 @@ async function vdRun() {
     btn.disabled = false;
     btn.textContent = "✨ ابدأ الإنتاج";
   }
+}
+
 }

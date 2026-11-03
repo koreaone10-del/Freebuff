@@ -381,7 +381,12 @@ textarea, input, select, button { font-family: inherit; }
 .vd-result { margin-top: 16px; }
 .vd-final { border: 1px solid var(--stroke2); border-radius: 14px; overflow: hidden; background: var(--glass); }
 .vd-final video { width: 100%; max-height: 52dvh; display: block; background: #000; }
-.vd-final-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
+.vd-mark-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.vd-mark { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); font-size: 12px; color: #e8e4d8; white-space: nowrap; }
+.vd-mark.on { background: #2f6b4f; border-color: #6fae8f; color: #fff; box-shadow: 0 0 0 2px rgba(47,107,79,.25); }
+.vd-mark-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .55; }
+.vd-mark.on .vd-mark-dot { opacity: 1; }
+.vd-mark-time { color: #b9b4a2; font-size: 11px; }
 .vd-final-bar .vfb-meta { flex: 1; min-width: 140px; display: flex; flex-direction: column; }
 .vd-final-bar .vfb-meta b { font-size: 13px; }
 .vd-final-bar .vfb-meta span { font-size: 11px; color: var(--muted); }
