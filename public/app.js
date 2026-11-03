@@ -1777,7 +1777,7 @@ function vdShowResult(plan, res) {
         <button class="mini-btn" id="vdToChat">💬 أضِف للمحادثة</button>
       </div>
       ${ext === "mp4"
-        ? '<div class="vfb-note">✓ MP4 جاهز للمشاركة كما هو — بلا تحويل ولا محوّل خارجي.</div>'
+        ? '<div class="vfb-note">✓ MP4 جاهز للمشاركة كما هو — بلا تحويل ولا محوّل خارجي.' + (res.metaFixed ? ' صُحّحت المدة والطوابع الزمنية داخل الملف، فيظهر طوله صحيحاً في المشغّلات والمحرّرات.' : '') + '</div>'
         : '<div class="vfb-note warn">هذا المتصفح لا يسجّل MP4 مباشرة، فحُفظ الفيديو WebM. افتح الصفحة في Chrome أو Edge أو Safari للحصول على MP4 بضغطة واحدة.</div>'}
     </div>`;
   $("#vdDl").onclick = () => {
@@ -1853,6 +1853,16 @@ async function vdRun() {
 
     const l4 = vdLine("🎬 المونتاج والتسجيل — أبقِ التبويب مفتوحاً", "act");
     const res = await vdRecord({ plan, images, narrations, W, H });
+    if (res.ext === "mp4" && window.VD_MP4) {
+      try {
+        const fx = VD_MP4.fixDuration(await res.blob.arrayBuffer(), res.duration);
+        if (fx && fx.changed) {
+          res.blob = new Blob([fx.bytes], { type: res.mime });
+          if (fx.duration > 0) res.duration = fx.duration;
+          res.metaFixed = true;
+        }
+      } catch (_) {}
+    }
     l4.className = "sline done";
     l4.innerHTML = `<div class="si">✓</div><div>تم التسجيل: ${Math.round(res.duration)} ثانية · ${fmtSize(res.blob.size)}</div>`;
     vdBar(1);
