@@ -1391,6 +1391,7 @@ function vdOpen(prompt) {
   $("#vdResult").innerHTML = "";
   $("#vdLines").innerHTML = "";
   vdBar(0);
+  vdSetFormat();
   $("#videoOverlay").classList.add("open");
   setTimeout(() => $("#vdTopic").focus(), 120);
 }
@@ -1643,12 +1644,36 @@ function vdMusic(ac, dest, mood) {
   };
 }
 
+const VD_MIMES = [
+  { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", ext: "mp4" },
+  { mime: "video/mp4;codecs=avc1,mp4a", ext: "mp4" },
+  { mime: "video/mp4;codecs=avc1", ext: "mp4" },
+  { mime: "video/mp4", ext: "mp4" },
+  { mime: "video/webm;codecs=vp9,opus", ext: "webm" },
+  { mime: "video/webm;codecs=vp8,opus", ext: "webm" },
+  { mime: "video/webm", ext: "webm" }
+];
+
+function vdSupports(m) {
+  try { return !!(window.MediaRecorder && MediaRecorder.isTypeSupported(m)); } catch (_) { return false; }
+}
+
 function vdPickMime() {
-  const list = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
-  for (const m of list) {
-    try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m; } catch (_) {}
+  for (const c of VD_MIMES) if (vdSupports(c.mime)) return c;
+  return { mime: "", ext: "webm" };
+}
+
+function vdSetFormat() {
+  const el = $("#vdFmt");
+  if (!el) return;
+  if (!window.MediaRecorder) {
+    el.innerHTML = "⚠️ متصفحك لا يدعم تسجيل الفيديو — استخدم نسخة حديثة من Chrome أو Edge أو Safari";
+    return;
   }
-  return "";
+  const p = vdPickMime();
+  el.innerHTML = p.ext === "mp4"
+    ? "📦 صيغة الإخراج: <b>MP4</b> · H.264 + AAC — جاهز ليوتيوب وواتساب وإنستغرام وكل المنصات"
+    : "📦 صيغة الإخراج: <b>WebM</b> — هذا المتصفح لا يملك مُرمِّز MP4 داخلياً (Firefox). افتح الموقع في Chrome أو Edge أو Safari لتحصل على MP4 مباشرة.";
 }
 
 async function vdRecord({ plan, images, narrations, W, H }) {
@@ -1685,9 +1710,16 @@ async function vdRecord({ plan, images, narrations, W, H }) {
   for (const d of durs) { starts.push(acc); acc += d; }
   const total = acc;
 
-  const mime = vdPickMime();
   if (!window.MediaRecorder) throw new Error("متصفحك لا يدعم تسجيل الفيديو — استخدم Chrome أو Edge");
-  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4500000 } : undefined);
+  const pick = vdPickMime();
+  const base = { videoBitsPerSecond: 4500000, audioBitsPerSecond: 128000 };
+  let rec;
+  try {
+    rec = new MediaRecorder(stream, pick.mime ? Object.assign({ mimeType: pick.mime }, base) : base);
+  } catch (_) {
+    try { rec = new MediaRecorder(stream, pick.mime ? { mimeType: pick.mime } : undefined); }
+    catch (_) { rec = new MediaRecorder(stream); }
+  }
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise((res) => { rec.onstop = res; rec.onerror = res; });
@@ -1726,13 +1758,15 @@ async function vdRecord({ plan, images, narrations, W, H }) {
   if (padStop) padStop();
   try { if (ac) await ac.close(); } catch (_) {}
 
-  return { blob: new Blob(chunks, { type: mime || "video/webm" }), duration: total, mime: mime || "video/webm" };
+  const outMime = rec.mimeType || pick.mime || "video/webm";
+  const ext = /mp4/.test(outMime) ? "mp4" : "webm";
+  return { blob: new Blob(chunks, { type: outMime }), duration: total, mime: outMime, ext };
 }
 
 function vdShowResult(plan, res) {
   const url = URL.createObjectURL(res.blob);
   VD.blob = res.blob;
-  const ext = /mp4/.test(res.mime) ? "mp4" : "webm";
+  const ext = res.ext || (/mp4/.test(res.mime) ? "mp4" : "webm");
   VD.lastUrl = url;
   $("#vdResult").innerHTML = `
     <div class="vd-final">
@@ -1742,6 +1776,9 @@ function vdShowResult(plan, res) {
         <button class="mini-btn" id="vdDl">⬇ تنزيل</button>
         <button class="mini-btn" id="vdToChat">💬 أضِف للمحادثة</button>
       </div>
+      ${ext === "mp4"
+        ? '<div class="vfb-note">✓ MP4 جاهز للمشاركة كما هو — بلا تحويل ولا محوّل خارجي.</div>'
+        : '<div class="vfb-note warn">هذا المتصفح لا يسجّل MP4 مباشرة، فحُفظ الفيديو WebM. افتح الصفحة في Chrome أو Edge أو Safari للحصول على MP4 بضغطة واحدة.</div>'}
     </div>`;
   $("#vdDl").onclick = () => {
     const a = document.createElement("a");

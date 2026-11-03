@@ -362,6 +362,8 @@ textarea, input, select, button { font-family: inherit; }
 .modal .chk input { accent-color: var(--violet); width: 15px; height: 15px; }
 .vd-opts { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 .vd-opts .chk { flex: 1; min-width: 160px; }
+.vd-fmt { margin-top: 12px; padding: 8px 12px; border-radius: 10px; background: var(--glass2); border: 1px solid var(--stroke); font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.vd-fmt b { color: var(--text); }
 .vd-stage { display: none; margin-top: 16px; }
 .vd-stage:has(.sline) { display: block; }
 .vd-lines:empty { display: none; }
@@ -383,6 +385,8 @@ textarea, input, select, button { font-family: inherit; }
 .vd-final-bar .vfb-meta { flex: 1; min-width: 140px; display: flex; flex-direction: column; }
 .vd-final-bar .vfb-meta b { font-size: 13px; }
 .vd-final-bar .vfb-meta span { font-size: 11px; color: var(--muted); }
+.vd-final .vfb-note { padding: 0 14px 11px; font-size: 11px; color: var(--ok); }
+.vd-final .vfb-note.warn { color: var(--muted); }
 .genvid { border: 1px solid var(--stroke2); border-radius: var(--r-lg); overflow: hidden; max-width: 620px; margin: 6px 0; background: #000; }
 .genvid video { width: 100%; display: block; max-height: 460px; }
 .genvid .gvmeta { display: flex; flex-direction: column; padding: 9px 14px; background: var(--glass2); }
