@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>نبراس AI — الذكاء الاصطناعي المجاني الفخم</title>
+<meta name="description" content="محادثة ذكاء اصطناعي كاملة بدون أي مفتاح API: بحث عميق، تحليل مواقع وملفات، رؤية، صوت، وتوليد صور — كل شيء مجاني." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%237c5cff'/><text y='72' x='50' text-anchor='middle' font-size='58'>✦</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="aurora"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+<div class="backdrop" id="backdrop"></div>
+
+<div id="app">
+  <!-- الشريط الجانبي -->
+  <aside id="sidebar">
+    <div class="side-head">
+      <div class="brand">
+        <div class="logo">✦</div>
+        <h1>نبراس AI<small>ذكاء اصطناعي — مجاني بالكامل</small></h1>
+      </div>
+      <button class="btn-new" id="btnNew"><span>＋</span> محادثة جديدة</button>
+      <div class="search-wrap">
+        <input id="sessSearch" type="text" placeholder="ابحث في محادثاتك..." />
+        <span class="icon">⌕</span>
+      </div>
+    </div>
+    <div class="sessions" id="sessList"></div>
+    <div class="side-foot">
+      <button id="btnExport">⬇ حفظ نسخة</button>
+      <button id="btnImport">⬆ استيراد</button>
+      <button id="btnSettings">⚙ الإعدادات</button>
+    </div>
+  </aside>
+
+  <!-- المنطقة الرئيسية -->
+  <main>
+    <header>
+      <button class="icon-btn" id="btnSide" title="القائمة">☰</button>
+      <span class="model-wrap"><select id="modelSel"></select></span>
+      <span class="health-dot" id="healthLabel" title="حالة المزوّدين الآن — انقر للتفاصيل"><i></i><b>جاهز</b></span>
+    </header>
+
+    <div id="chat"><div class="chat-col" id="chatCol"></div></div>
+
+    <div class="composer-outer">
+      <div class="composer-col">
+        <div class="modebar" id="modebar">
+          <button class="mode-chip on" data-mode="chat" title="دردشة ذكية">💬 دردشة</button>
+          <button class="mode-chip" data-mode="research" title="بحث عميق مع مصادر">🔎 بحث عميق</button>
+          <button class="mode-chip" data-mode="site" title="تحقيق في موقع">🌐 تحليل موقع</button>
+          <button class="mode-chip" data-mode="img" title="توليد صورة">🎨 توليد صورة</button>
+          <button class="mode-chip" data-mode="video" title="إنتاج فيديو كامل بصور وتعليق صوتي وموسيقى">🎬 فيديو</button>
+        </div>
+        <div class="composer" id="composer">
+          <div class="attlist" id="attList"></div>
+          <div class="brow">
+            <button class="cbtn" id="btnAttach" title="إرفاق ملفات (صور، PDF، صوت، مضغوط...)">📎</button>
+            <button class="cbtn mic" id="btnMic" title="إدخال صوتي">🎙️</button>
+            <textarea id="input" rows="1" placeholder="اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لسطر جديد)"></textarea>
+            <button class="cbtn stop" id="btnStop" title="إيقاف">■</button>
+            <button class="cbtn send" id="btnSend" title="إرسال">↑</button>
+          </div>
+          <div class="com-foot">
+            <div class="ctx" id="ctxInfo"></div>
+            <div id="footNote">بدون مفاتيح API · بياناتك تبقى في متصفحك · 4 مزوّدين مجانيين</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<input type="file" id="fileInput" multiple />
+<div class="overlay" id="settingsOverlay">
+  <div class="modal">
+    <h3>⚙ الإعدادات</h3>
+    <label>توجيه النظام (شخصية المساعد)</label>
+    <textarea id="setSystem" placeholder="مثال: أنت خبير هندسة برمجيات، أجب بالعربية بإيجاز وكود نظيف..."></textarea>
+    <div class="seg" id="personaSeg">
+      <button class="sm on" data-p="">🌅 عام ذكي</button>
+      <button class="sm" data-p="code">👨‍💻 برمجة</button>
+      <button class="sm" data-p="analy">📊 تحليل</button>
+      <button class="sm" data-p="write">✍️ كتابة</button>
+      <button class="sm" data-p="tutor">🎓 مدرّس</button>
+      <button class="sm" data-p="biz">💼 أعمال</button>
+    </div>
+    <label>تعبئة الواجهة</label>
+    <div class="seg" id="accentSeg">
+      <button class="sm on" data-a="violet">بنفسجي ملكي</button>
+      <button class="sm" data-a="emerald">زمرّدي</button>
+      <button class="sm" data-a="rose">ذهبي وردي</button>
+    </div>
+    <label>حالة المزوّدين (حية)</label>
+    <div class="prov-list" id="provList"></div>
+    <div class="acts">
+      <button id="btnClearAll" style="color:var(--danger)">🗑 تصفير الكل</button>
+      <button id="btnSaveSettings" class="pri">حفظ</button>
+    </div>
+    <div class="hint">🔒 كل شيء محفوظ في متصفحك فقط (IndexedDB). لا حسابات، لا مفاتيح، لا تتبّع. النماذج مجانية من Pollinations وLLM7 وKilo وOVH مع البحث عبر DuckDuckGo وJina.</div>
+  </div>
+</div>
+
+<div class="overlay" id="videoOverlay">
+  <div class="modal studio">
+    <h3>🎬 استوديو الفيديو — إنتاج كامل مجاناً</h3>
+    <p class="st-lede">فكرة → سيناريو ومشاهد → صور مولّدة → تعليق صوتي عربي وموسيقى → مونتاج وتسجيل. كل شيء داخل متصفحك، بلا مفاتيح ولا حسابات.</p>
+    <label>موضوع الفيديو أو فكرته</label>
+    <textarea id="vdTopic" placeholder="مثال: فيلم قصير عن مدينة عائمة في السحاب، وطفل يبحث عن صديقه الآلي..."></textarea>
+    <label>عدد المشاهد (المدة تقريبية)</label>
+    <div class="seg" id="vdScenes">
+      <button class="sm" data-n="4">4 مشاهد · ~20ث</button>
+      <button class="sm on" data-n="6">6 مشاهد · ~30ث</button>
+      <button class="sm" data-n="8">8 مشاهد · ~40ث</button>
+    </div>
+    <label>المقاس</label>
+    <div class="seg" id="vdAspect">
+      <button class="sm on" data-v="16:9">16:9 · يوتيوب</button>
+      <button class="sm" data-v="9:16">9:16 · ريلز وشورتس</button>
+      <button class="sm" data-v="1:1">1:1 · إنستغرام</button>
+    </div>
+    <label>الأسلوب البصري</label>
+    <div class="seg" id="vdStyle">
+      <button class="sm on" data-s="cinematic">🎥 سينمائي</button>
+      <button class="sm" data-s="documentary">📽️ وثائقي</button>
+      <button class="sm" data-s="anime">🌸 أنمي</button>
+      <button class="sm" data-s="3d">🧊 ثلاثي الأبعاد</button>
+    </div>
+    <div class="vd-opts">
+      <label class="chk"><input type="checkbox" id="vdNarration" checked /> تعليق صوتي عربي</label>
+      <label class="chk"><input type="checkbox" id="vdMusic" checked /> موسيقى خلفية مولّدة</label>
+    </div>
+    <div class="vd-stage" id="vdStage">
+      <div class="vd-lines" id="vdLines"></div>
+      <canvas id="vdPreview"></canvas>
+      <div class="vd-progress"><i id="vdBar"></i></div>
+    </div>
+    <div class="vd-result" id="vdResult"></div>
+    <div class="acts">
+      <button id="vdClose">إغلاق</button>
+      <button id="vdStart" class="pri">✨ ابدأ الإنتاج</button>
+    </div>
+    <div class="hint">⏳ الإنتاج يسير بالزمن الحقيقي: فيديو 30 ثانية يستغرق نحو 30 ثانية تسجيل بعد تجهيز الصور والأصوات. أبقِ التبويب مفتوحاً ولا تُغلق النافذة حتى ينتهي. الملف يُنزَّل بصيغة WebM (يعمل في يوتيوب ومحررات الفيديو ويتحوّل إلى MP4 بأي محوّل).</div>
+  </div>
+</div>
+
+<div class="viewer" id="viewer">
+  <div class="vhead">
+    <b id="vTitle"></b>
+    <button class="icon-btn" id="btnViewerCopy" title="نسخ النص">⧉</button>
+    <button class="icon-btn" id="btnViewerClose">✕</button>
+  </div>
+  <div class="vbody" id="vBody"></div>
+</div>
+<div class="lightbox" id="lightbox"><img id="lightboxImg" alt="" /></div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.7.2/mammoth.browser.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
