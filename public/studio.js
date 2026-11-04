@@ -30,6 +30,7 @@
     style: "cinematic",
     narration: true,
     music: true,
+    fast: true,
     running: false,
     canceled: false,
     plan: null,
@@ -179,8 +180,10 @@
         return { img: got.img, url: got.url, ok: true };
       } catch (e) {
         if (e.name === "AbortError") { if (S.canceled) throw new Error("أُلغي الإنتاج"); }
-        if (e.status === 429 && Number(e.retry) > 0 && attempt < 2) {
-          await waitCountdown(Math.min(60, Number(e.retry) + 1), onWait);
+        if (e.status === 429 && attempt < 2) {
+          // بعض الردود تقول «ثانية واحدة» بينما الحد ما زال قائماً: لا نركض في حلفة قصيرة بلا فائدة
+          const wait = Number(e.retry) > 0 ? clamp(Number(e.retry) + 1, 4, 60) : 8;
+          await waitCountdown(wait, onWait);
           continue;
         }
         if (attempt < 2) await sleep(1500);
@@ -232,6 +235,61 @@
     g.setTransform(1, 0, 0, 1, 0, 0);
     const tone = ["rgba(0,10,40,.30)", "rgba(50,10,0,.26)", "rgba(0,30,20,.26)"][i % 3];
     g.fillStyle = tone;
+    g.fillRect(0, 0, w, h);
+    return c;
+  }
+
+  // وصف الصورة الأساسية الواحدة: لقطة واسعة تحتوي تفاصيل تغطي كل مناطق الإطار،
+  // حتى يجد كل مشهد زاوية مختلفة تُقصّ منها دون أن يبدو الإطار فارغاً أو مكرراً.
+  function baseShotPrompt(plan, styleText) {
+    const sc = (plan && plan.scenes && plan.scenes[0]) || {};
+    // hero من الخطة يصف الموضوع كله؛ فإن غاب نستعمل وصف المشهد الأول مع تقييد اللقطة الواسعة
+    const core = String((plan && plan.hero) || sc.image || "").trim() || "wide establishing shot of the whole subject";
+    return (core +
+      ", single ultra wide establishing shot, rich detail spread across the entire frame, " +
+      "space on the left and right edges, deep background, foreground elements, " +
+      styleText + ", no text, no letters, no watermark").slice(0, 620);
+  }
+
+  // لقطة كاميرا مختلفة من الصورة الأساسية: نافذة قصّ في منطقة أخرى + انعكاس + تدرّج لوني.
+  // النتيجة إطار بمقاس الفيديو تماماً، فيبدو كل مشهد كأنه زاوية تصوير مستقلة.
+  function angleOf(src, w, h, i) {
+    if (!src || !src.width) return placeholder(w, h, i);
+    const shots = [
+      { x: 0.50, y: 0.48, z: 1.00, flip: false, roll: 0,    tone: "rgba(255,178,96,.34)" },
+      { x: 0.20, y: 0.52, z: 1.14, flip: false, roll: -0.014, tone: "rgba(96,168,255,.30)" },
+      { x: 0.80, y: 0.44, z: 1.12, flip: true,  roll: 0.012,  tone: "rgba(120,220,255,.26)" },
+      { x: 0.50, y: 0.78, z: 1.34, flip: false, roll: 0,     tone: "rgba(255,134,66,.32)" },
+      { x: 0.44, y: 0.20, z: 1.22, flip: true,  roll: -0.01,  tone: "rgba(150,124,255,.30)" },
+      { x: 0.28, y: 0.64, z: 1.34, flip: false, roll: 0.016,  tone: "rgba(84,200,164,.28)" }
+    ];
+    const s = shots[i % shots.length];
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    const ratio = w / h;
+    let ch = src.height / s.z;
+    let cw = ch * ratio;
+    if (cw > src.width) { cw = src.width; ch = cw / ratio; }
+    let sx = clamp((src.width - cw) * s.x, 0, Math.max(0, src.width - cw));
+    let sy = clamp((src.height - ch) * s.y, 0, Math.max(0, src.height - ch));
+    if (s.roll) { // ميل خفيف للكاميرا يزيد الإحساس بلقطة مختلفة
+      g.translate(w / 2, h / 2);
+      g.rotate(s.roll);
+      g.scale(1.06, 1.06); // يكفي لتغطية الزوايا بعد الميل
+      g.translate(-w / 2, -h / 2);
+    }
+    if (s.flip) { g.translate(w, 0); g.scale(-1, 1); }
+    g.drawImage(src, sx, sy, cw, ch, 0, 0, w, h);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = "soft-light";
+    g.fillStyle = s.tone;
+    g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = "source-over";
+    const vg = g.createRadialGradient(w / 2, h * 0.46, Math.min(w, h) * 0.24, w / 2, h * 0.5, Math.max(w, h) * 0.8);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,.4)");
+    g.fillStyle = vg;
     g.fillRect(0, 0, w, h);
     return c;
   }
@@ -328,8 +386,12 @@
   function drawFrame(ctx, W, H, t, sceneIdx, local, caption, title, subtitle, isFirst) {
     const sc = S.plan.scenes[sceneIdx] || {};
     const img = S.images[sceneIdx];
-    const zoom = 1.04 + 0.08 * easeInOut(clamp(local, 0, 1));
-    drawCover(ctx, img, W, H, zoom, clamp(local, 0, 1));
+    // لكل مشهد حركة كاميرا مختلفة: دفعة للأمام، تراجع، أو مسح جانبي معاكس
+    const l = clamp(local, 0, 1);
+    const kind = sceneIdx % 4;
+    const zoom = kind === 2 ? 1.15 - 0.09 * easeInOut(l) : 1.04 + 0.09 * easeInOut(l);
+    const motion = kind === 1 || kind === 3 ? 1 - l : l;
+    drawCover(ctx, img, W, H, zoom, motion);
 
     // تظليل سفلي لقراءة النص
     const g = ctx.createLinearGradient(0, H * 0.52, 0, H);
@@ -438,8 +500,9 @@
     let acRef = null;
     if (S.url) { URL.revokeObjectURL(S.url); S.url = ""; S.blob = null; }
 
-    const start = $("#vdStart");
-    if (start) { start.disabled = true; start.textContent = "⏳ جارٍ الإنتاج..."; }
+    const start = $("#vdStart");      if (start) { start.disabled = true; start.textContent = "⏳ جارٍ الإنتاج..."; }
+      const fastRef = $("#vdFast");
+      if (fastRef) fastRef.disabled = true;
     const stage = $("#vdStage");
     if (stage) stage.classList.add("on");
     const preview = $("#vdPreview");
@@ -473,7 +536,38 @@
       if (phases) phases.set("img", "act");
       const images = [];
       let fallbackUsed = 0;
-      for (let i = 0; i < S.n; i++) {
+      let fastUsed = false;
+      const fastEl = $("#vdFast");
+      const fastMode = fastEl ? fastEl.checked : S.fast !== false;
+
+      // وضع سريع: صورة أساسية واحدة (حصة واحدة) ثم زوايا لكل مشهد، بدل انتظار حصة لكل مشهد.
+      if (fastMode) {
+        pct(0.10, "أولّد صورة أساسية واحدة ثم أستخرج زوايا المشاهد…");
+        const bw = Math.min(1600, Math.round(W * 1.55));
+        const bh = Math.min(1600, Math.round(H * 1.55));
+        const got = await sceneImage(baseShotPrompt(S.plan, styleText), bw, bh, 1200 + Math.floor(Math.random() * 90), (left) => {
+          pct(0.10, "حصة الصور المجانية ممتلئة — انتظار " + left + "ث للصورة الأساسية…");
+        });
+        if (S.canceled) throw new Error("أُلغي الإنتاج");
+        if (got.ok) {
+          fastUsed = true;
+          for (let i = 0; i < S.n; i++) {
+            if (S.canceled) throw new Error("أُلغي الإنتاج");
+            images.push(angleOf(got.img, W, H, i));
+            S.images = images;
+            pct(0.10 + 0.45 * ((i + 1) / S.n), "زاوية المشهد " + (i + 1) + " من " + S.n + " — " + Math.round(((i + 1) / S.n) * 100) + "% من الزوايا");
+          }
+        } else {
+          // خط الأساس لم ينجح: لا نكرّر الانتظار لكل مشهد، بل نستخدم تنويعات من خلفية سينمائية
+          fallbackUsed = S.n;
+          for (let i = 0; i < S.n; i++) {
+            if (S.canceled) throw new Error("أُلغي الإنتاج");
+            images.push(i === 0 ? placeholder(W, H, 0) : variantOf(images[0], W, H, i));
+            S.images = images;
+          }
+          pct(0.55, "تعذّر توليد الصورة الأساسية — استخدمت زوايا بديلة، وسأكمل الإنتاج.");
+        }
+      } else for (let i = 0; i < S.n; i++) {
         if (S.canceled) throw new Error("أُلغي الإنتاج");
         const sc = S.plan.scenes[i];
         const prompt = (sc.image || "cinematic scene") + ", " + styleText + ", no text, no watermark";
@@ -495,9 +589,11 @@
         pct(0.08 + 0.47 * ((i + 1) / S.n), "اكتملت صورة المشهد " + (i + 1) + " من " + S.n + " — " + Math.round(((i + 1) / S.n) * 100) + "% من الصور");
       }
       S.images = images;
-      if (phases) phases.set("img", "done", fallbackUsed
-        ? "الصور جاهزة (" + (images.length - fallbackUsed) + " مولّدة، " + fallbackUsed + " بديلة)"
-        : "الصور جاهزة (" + images.length + ")");
+      if (phases) phases.set("img", "done", fastUsed
+        ? "الزوايا جاهزة: صورة أساسية واحدة استُخرجت منها " + S.n + " لقطة"
+        : (fallbackUsed
+          ? "الصور جاهزة (" + (images.length - fallbackUsed) + " مولّدة، " + fallbackUsed + " بديلة)"
+          : "الصور جاهزة (" + images.length + ")"));
       pct(0.56, "الصور جاهزة — أجهّز الصوت…");
 
       /* 3) التعليق الصوتي */
@@ -597,6 +693,8 @@
         }
       } catch (_) {}
 
+      if (fastUsed) note += (note ? " " : "") + "استُخرجت زوايا المشاهد من صورة أساسية واحدة (حصة صور واحدة بدل " + S.n + ").";
+
       S.blob = blob;
       S.url = URL.createObjectURL(blob);
 
@@ -627,6 +725,8 @@
       S.running = false;
       if (acRef) { const a = acRef; acRef = null; setTimeout(() => { try { a.close(); } catch (_) {} }, 1500); }
       if (start) { start.disabled = false; start.textContent = "✨ ابدأ الإنتاج"; }
+      const fEl = $("#vdFast");
+      if (fEl) fEl.disabled = false;
     }
   }
 
@@ -739,6 +839,8 @@
     if (nEl) nEl.addEventListener("change", () => { S.narration = nEl.checked; });
     const mEl = $("#vdMusic");
     if (mEl) mEl.addEventListener("change", () => { S.music = mEl.checked; });
+    const fEl = $("#vdFast");
+    if (fEl) { S.fast = fEl.checked; fEl.addEventListener("change", () => { S.fast = fEl.checked; }); }
     fmtInfo();
   }
 

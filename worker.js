@@ -504,7 +504,7 @@ function extractJSON(txt) {
 const PLAN_SYSTEM = (n, style) => `أنت مخرج أفلام ومصمم مشاهد محترف. مهمتك تحويل فكرة إلى خطة فيديو قصير.
 
 أعِد **JSON فقط** بهذا الشكل بالضبط (بدون أي كلام قبله أو بعده، وبدون علامات كود):
-{"title":"عنوان قصير بالعربية (٣-٦ كلمات)","subtitle":"سطر وصفي واحد بالعربية","mood":"calm|epic|uplifting|mysterious","scenes":[{"narration":"جملة سرد عربية واحدة ١٢-٢٠ كلمة تُقرأ صوتياً","caption":"نص قصير جداً يظهر على الشاشة بالعربية (٣-٧ كلمات)","image":"detailed ENGLISH image prompt describing the visual, no text in image"}]}
+{"title":"عنوان قصير بالعربية (٣-٦ كلمات)","subtitle":"سطر وصفي واحد بالعربية","mood":"calm|epic|uplifting|mysterious","hero":"ENGLISH prompt for ONE wide establishing shot that represents the whole video: the main place or subject seen from a distance, rich detail from edge to edge, no close-up faces, no text","scenes":[{"narration":"جملة سرد عربية واحدة ١٢-٢٠ كلمة تُقرأ صوتياً","caption":"نص قصير جداً يظهر على الشاشة بالعربية (٣-٧ كلمات)","image":"detailed ENGLISH image prompt describing the visual, no text in image"}]}
 
 القواعد الصارمة:
 - عدد المشاهد بالضبط ${n}، مرتبة كقصة متصلة من البداية للنهاية وتُكمل بعضها في السرد.
@@ -512,6 +512,7 @@ const PLAN_SYSTEM = (n, style) => `أنت مخرج أفلام ومصمم مشا�
 - كل وصف صورة مختلف عن الآخر ويصف مشهداً بصرياً محدداً (مكان، شخص، إضاءة، حركة).
 - الأسلوب البصري المطلوب: ${style}. لا تذكر أي نص أو كتابة داخل وصف الصورة.
 - الطول ملائم لفيديو قصير، بلا حشو.
+- حقل hero بالإنجليزية فقط: لقطة تأسيسية واسعة تمثّل الموضوع كله (المكان أو الظاهرة من بعيد)، لا وجوهاً قريبة ولا أشخاص يملأون الإطار.
 - اكتب JSON على سطر واحد مضغوط: لا أسطر جديدة ولا صناديق كود داخل القيم.`;
 
 async function handleVideoPlan(body) {
@@ -548,17 +549,21 @@ async function handleVideoPlan(body) {
       scenes.push({
         narration: i === 0 ? "نبدأ من فكرة: " + topic : topicsFallback(i, topic),
         caption: i === 0 ? "البداية" : beats[i % beats.length],
-        image: `cinematic scene ${i + 1} illustrating "${maxChars(topic, 140)}", ${style}`
+        // وصف إنجليزي صرف: الوصف العربي داخل الطلب يجعل مولّد الصور يرسم وجوهاً عشوائية
+        image: `wide cinematic establishing shot ${i + 1} of the video's subject, ${style}, detailed environment, no text`
       });
     }
   }
 
   function topicsFallback(i, t) { return "نتابع تفاصيل «" + maxChars(t, 70) + "» — المشهد " + (i + 1) + "."; }
 
+  const hero = maxChars(String((j && (j.hero || j.heroImage || j.establishing)) || "").trim(), 420);
+
   return new Response(JSON.stringify({
     title: maxChars(String((j && j.title) || topic).trim(), 90),
     subtitle: maxChars(String((j && j.subtitle) || "فيديو من إنتاج CHIBANI AI").trim(), 130),
     mood: ["calm", "epic", "uplifting", "mysterious"].includes(j && j.mood) ? j.mood : "calm",
+    hero: hero || "wide cinematic establishing shot of the video's subject, " + style + ", detailed environment, no close-up faces, no text",
     scenes,
     provider: got ? (got.provider + " · " + got.model) : "خطة محلية"
   }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
