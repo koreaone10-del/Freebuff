@@ -1,1 +1,1 @@
-{"name":"chibani-ai","version":"1.0.0","type":"module","main":"worker.js","scripts":{"deploy":"npx wrangler deploy"},"dependencies":{}}
+{"name":"chibani-ai","version":"1.0.0","type":"module","main":"worker.js","scripts":{"deploy":"npx wrangler deploy"},"dependencies":{"playwright":"^1.64.1","wrangler":"^4.157.0"}}

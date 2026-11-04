@@ -619,6 +619,63 @@ async function handleTTS(rawText, rawLang) {
   });
 }
 
+// ---------- صور من AI Horde: نماذج مفتوحة المصدر على GPU متطوّعين، بلا مفتاح ولا حصة IP ----------
+const HORDE = { base: "https://aihorde.net/api/v2", key: "0000000000", agent: "CHIBANI-AI:1.0:github.com/koreaone10-del/Freebuff" };
+// "auto" تعني بلا فلتر: Horde يوجّه الطلب لأقرب عامل يخدمه فوراً بدل الوقوف في طابور نموذج مزدحم
+const HORDE_MODELS = {
+  auto: null,
+  sdxl: ["AlbedoBase XL (SDXL)", "SDXL 1.0"],
+  deliberate: ["Deliberate", "PerfectDeliberate", "Deliberate 3.0"],
+  realistic: ["Realistic Vision", "majicMIX realistic"],
+  flux: ["Flux.1-Schnell fp8 (Compact)"]
+};
+
+async function hordeImage(prompt, w, h, seed, model) {
+  const models = Object.prototype.hasOwnProperty.call(HORDE_MODELS, model) ? HORDE_MODELS[model] : null;
+  const submit = await fetch(HORDE.base + "/generate/async", {
+    method: "POST",
+    headers: {
+      ...UA,
+      "content-type": "application/json",
+      apikey: HORDE.key,
+      "Client-Agent": HORDE.agent
+    },
+    body: JSON.stringify({
+      prompt: maxChars(prompt, 900),
+      params: { width: w, height: h, steps: 26, cfg_scale: 7, sampler_name: "k_euler", n: 1, seed: String(seed) },
+      ...(models ? { models } : {}),
+      nsfw: false,
+      censor_nsfw: true,
+      trusted_workers: false,
+      r2: true
+    })
+  });
+  const sj = await submit.json().catch(() => ({}));
+  if (!submit.ok || !sj.id) return { ok: false, status: submit.status, detail: maxChars(String(sj.message || sj.error || "تعذّر إرسال الطلب"), 160) };
+
+  const t0 = Date.now();
+  while (Date.now() - t0 < 42000) {
+    await new Promise((r) => setTimeout(r, 1800));
+    const chk = await fetch(HORDE.base + "/generate/check/" + sj.id, { headers: { ...UA, "Client-Agent": HORDE.agent } }).then((r) => r.json()).catch(() => null);
+    if (chk && chk.faulted) return { ok: false, status: 502, detail: "فشل المولّد على عامل Horde" };
+    if (chk && !chk.done && chk.wait_time > 55 && chk.queue_position > 40) {
+      return { ok: false, status: 503, detail: "طابور Horde طويل الآن (" + chk.wait_time + "ث)" };
+    }
+    if (chk && chk.done) {
+      const st = await fetch(HORDE.base + "/generate/status/" + sj.id, { headers: { ...UA, "Client-Agent": HORDE.agent } }).then((r) => r.json()).catch(() => null);
+      const gen = st && st.generations && st.generations[0];
+      if (!gen || !gen.img) return { ok: false, status: 502, detail: "لا صورة في الرد" };
+      if (gen.censored) return { ok: false, status: 502, detail: "صنّف الفلتر الصورة كغير مناسبة" };
+      const bin = await fetch(gen.img, { headers: UA });
+      if (!bin.ok) return { ok: false, status: bin.status, detail: "تعذّر تنزيل الصورة" };
+      const buf = await bin.arrayBuffer();
+      if (buf.byteLength < 1024) return { ok: false, status: 502, detail: "ملف صغير جداً" };
+      return { ok: true, buf, type: bin.headers.get("content-type") || "image/webp", model: (gen.model || (models && models[0]) || "horde"), seed: gen.seed };
+    }
+  }
+  return { ok: false, status: 504, detail: "انتهى وقت الانتظار في طابور Horde" };
+}
+
 // ---------- تمرير الصور: يمنع تلويث Canvas ويوحّد الصيغة ----------
 async function handleImage(url) {
   const prompt = maxChars(String(url.searchParams.get("prompt") || "").trim(), 700);
@@ -630,6 +687,35 @@ async function handleImage(url) {
   const w = num(url.searchParams.get("width"), 1024);
   const h = num(url.searchParams.get("height"), 1024);
   const seed = Number(url.searchParams.get("seed")) || Math.floor(Math.random() * 1000000);
+  const provider = ["auto", "pollinations", "horde"].includes(String(url.searchParams.get("provider") || "")) ? String(url.searchParams.get("provider")) : "auto";
+  const hmodel = Object.prototype.hasOwnProperty.call(HORDE_MODELS, String(url.searchParams.get("hmodel") || "")) ? String(url.searchParams.get("hmodel")) : "auto";
+  const fromHorde = async () => {
+    // Horde مجاني بلا حصة IP لكنه أبطأ بمقاسات كبيرة: نحدّ الضلع الأطول بـ768 ثم يكبّر المتصفح
+    const k = Math.min(1, 768 / Math.max(w, h));
+    const hw = Math.max(256, Math.round((w * k) / 8) * 8);
+    const hh = Math.max(256, Math.round((h * k) / 8) * 8);
+    const r = await hordeImage(prompt, hw, hh, seed, hmodel);
+    if (!r.ok) return null;
+    return new Response(r.buf, {
+      headers: {
+        "content-type": r.type,
+        "cache-control": "public, max-age=86400, immutable",
+        "x-image-size": hw + "x" + hh,
+        "x-image-model": "horde/" + r.model,
+        "x-image-provider": "horde"
+      }
+    });
+  };
+
+  if (provider === "horde") {
+    const hr = await fromHorde();
+    if (hr) return hr;
+    return new Response(JSON.stringify({ error: "طابور Horde المفتوح مزدحم الآن — أعد المحاولة أو بدّل المحرّك." }), {
+      status: 502,
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+
   const base = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
     "?width=" + w + "&height=" + h + "&nologo=true&seed=" + seed + "&model=";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -647,6 +733,11 @@ async function handleImage(url) {
             const m = /retry after\s+(\d+)\s*s/i.exec(txt) || /"retry"\s*:\s*(\d+)/i.exec(txt);
             const wait = m ? Math.min(120, Number(m[1])) : 0;
             if (wait > 0) {
+              // حصة IP لـPollinations لا تمسّ Horde: في الوضع التلقائي نكمل التوليد بدل الانتظار
+              if (provider === "auto") {
+                const hr = await fromHorde();
+                if (hr) return hr;
+              }
               return new Response(JSON.stringify({
                 error: "حصة الصور المجانية ممتلئة — إعادة المحاولة بعد " + wait + " ثانية.",
                 retry: wait,
@@ -672,12 +763,17 @@ async function handleImage(url) {
             "content-type": ct,
             "cache-control": "public, max-age=86400, immutable",
             "x-image-size": w + "x" + h,
-            "x-image-model": model
+            "x-image-model": "pollinations/" + model,
+            "x-image-provider": "pollinations"
           }
         });
       } catch (e) { lastDetail = String(e).slice(0, 120); }
     }
     if (round === 0) await sleep(450);
+  }
+  if (provider === "auto") {
+    const hr = await fromHorde();
+    if (hr) return hr;
   }
   return new Response(JSON.stringify({
     error: "خدمة توليد الصور مزدحمة الآن — أعد المحاولة بعد نصف دقيقة.",

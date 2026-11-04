@@ -190,6 +190,8 @@
     const s = { id: uid(), title: "", createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
     S.sessions.unshift(s);
     S.activeId = s.id;
+    // جلسة جديدة = أدوات جديدة: لا تُورَّث أداة الجلسة السابقة ولا مرفقاتها
+    resetTools();
     renderSessions();
     renderChat();
     Store.put(s);
@@ -816,13 +818,34 @@
     saveSession(activeSession());
   }
 
+  /* --------------------------- محرّك الصور ----------------------------- */
+  // مصدران مجانيان بلا مفاتيح: Pollinations (سريع، صورة كل 45ث لكل IP) وHorde (نماذج مفتوحة المصدر
+  // على GPU متطوّعين، طابور أبطأ لكن بلا حصة IP). "تلقائي" يجرّب الأول ثم يكمل بالثاني.
+  const IMG_ENGINES = { auto: "تلقائي", pollinations: "Pollinations", horde: "Horde" };
+  const ENGINE_KEY = "cb.imgsrc";
+
+  function imageEngine() {
+    try {
+      const v = localStorage.getItem(ENGINE_KEY);
+      if (v && IMG_ENGINES[v]) return v;
+    } catch (_) {}
+    return "auto";
+  }
+
+  function setImageEngine(v) {
+    if (!IMG_ENGINES[v]) return;
+    try { localStorage.setItem(ENGINE_KEY, v); } catch (_) {}
+    $$("#imgEngine [data-engine]").forEach((b) => b.classList.toggle("on", b.dataset.engine === v));
+  }
+
   function imageURL(prompt, opt) {
     const o = opt || {};
     const q = new URLSearchParams({
       prompt: prompt,
       width: String(o.w || 1024),
       height: String(o.h || 1024),
-      seed: String(o.seed == null ? Math.floor(Math.random() * 1e6) : o.seed)
+      seed: String(o.seed == null ? Math.floor(Math.random() * 1e6) : o.seed),
+      provider: imageEngine()
     });
     return "/api/image?" + q.toString();
   }
@@ -1404,6 +1427,17 @@
       });
     }
 
+    const engineBar = $("#imgEngine");
+    if (engineBar) {
+      setImageEngine(imageEngine());
+      engineBar.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-engine]");
+        if (!b) return;
+        setImageEngine(b.dataset.engine);
+        toast("محرّك الصور: " + IMG_ENGINES[b.dataset.engine]);
+      });
+    }
+
     const newBtn = $("#btnNew");
     if (newBtn) newBtn.addEventListener("click", () => { newSession(); closeSide(); });
 
@@ -1512,6 +1546,15 @@
     if (input) input.placeholder = (narrow ? shortHints[mode] : hints[mode]) || hints.chat;
     if (mode === "handle") runTools();
     if (mode === "video" && CB.studio) CB.studio.open(input ? input.value.trim() : "");
+  }
+
+  // عند انتهاء الجلسة (بدء جلسة جديدة) تعود الأدوات إلى حالتها الافتراضية
+  function resetTools() {
+    setMode("chat");
+    if (S.attachments.length) {
+      S.attachments = [];
+      renderAtt();
+    }
   }
 
   function startDictation() {

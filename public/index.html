@@ -147,6 +147,12 @@
       <label class="chk"><input type="checkbox" id="vdMusic" checked /> موسيقى خلفية مولّدة</label>
       <label class="chk" title="توليد صورة واحدة كبيرة ثم استخراج لقطة مختلفة من كل منطقة فيها — يوفّر حصة الصور ويقصّر الإنتاج"><input type="checkbox" id="vdFast" checked /> ⚡ صورة واحدة وزوايا متعددة (أسرع)</label>
     </div>
+    <label>محرّك الصور</label>
+    <div class="seg" id="imgEngine">
+      <button class="sm on" data-engine="auto" title="يجرّب Pollinations السريع، ويعيد المحاولة تلقائياً على Horde عند نفاد الحصة">⚡ تلقائي</button>
+      <button class="sm" data-engine="pollinations" title="سريع جداً، لكن صورة واحدة كل 45 ثانية لكل عنوان IP">Pollinations</button>
+      <button class="sm" data-engine="horde" title="نماذج مفتوحة المصدر (SDXL وغيرها) على GPU متطوّعين — بلا مفتاح ولا حصة IP، لكن الطابور قد يطول">Horde مفتوح</button>
+    </div>
     <div class="vd-fmt" id="vdFmt"></div>
     <div class="vd-stage" id="vdStage">
       <div class="vd-lines" id="vdLines"></div>

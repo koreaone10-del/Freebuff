@@ -165,6 +165,15 @@
     }
   }
 
+  // محرّك الصور المختار في الواجهة: auto (Pollinations ثم Horde) أو أحدهما صراحةً
+  function imageEngine() {
+    try {
+      const v = localStorage.getItem("cb.imgsrc");
+      if (v === "auto" || v === "pollinations" || v === "horde") return v;
+    } catch (_) {}
+    return "auto";
+  }
+
   // صورة واحدة قد تحجبها حصة الخدمة المجانية (صورة كل 45 ثانية): ننتظر ونعيد المحاولة.
   async function sceneImage(prompt, w, h, seed, onWait) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -173,7 +182,8 @@
         prompt: attempt === 2 ? prompt + ", beautiful composition" : prompt,
         width: String(w),
         height: String(h),
-        seed: String(seed + attempt * 131)
+        seed: String(seed + attempt * 131),
+        provider: imageEngine()
       });
       try {
         const got = await fetchImage("/api/image?" + q.toString(), 95000);
