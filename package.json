@@ -1,13 +1,1 @@
-{
-  "name": "b39cae5be4b89999629da062",
-  "version": "1.0.0",
-  "description": "واجهة عربية (RTL) كاملة للذكاء الاصطناعي تعمل على Cloudflare Workers **بدون أي مفتاح API أو توكن أو حساب**، مع دردشة بثّ حي، بحث عميق بمصادر حقيقية، تحليل مواقع، قراءة كل أنواع الملفات، رؤية، تفريغ صوتي، توليد صور، و**استوديو فيديو** كامل.",
-  "main": "worker.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
-}
+{"name":"chibani-ai","version":"1.0.0","type":"module","main":"worker.js","scripts":{"deploy":"npx wrangler deploy"},"dependencies":{}}

@@ -1,13 +1,8 @@
 {
-  "entrypoint": "index.js",
+  "name": "chibani-ai",
+  "main": "worker.js",
   "compatibilityDate": "2026-11-04",
-  "modules": [
-    { "name": "index.js", "type": "esm", "path": "./worker.js" }
-  ],
-  "assetsDirectory": "./public",
-  "spa": true
+  "assets": {
+    "directory": "./public"
+  }
 }
-
-# ملاحظة: Cloudflare Pages تعمل بهذا الملف مباشرة.
-# المجلد العام هو ./public، و worker.js يُعالج مسارات /api/* و /static تلقائياً.
-# لا يحتاج هذا الملف لهذا المشروع إلى أي متغير أو دالة خاصة.

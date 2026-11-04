@@ -141,54 +141,6 @@ function setupMobile() {
 }
 
 async function loadModels() {
-  const toggleSide = () => {
-    const sb = document.getElementById('sidebar');
-    const back = document.getElementById('backdrop');
-    if (!sb || !back) return;
-    sb.classList.toggle('open', back.classList.toggle('open'));
-  };
-  const btnSide = document.getElementById('btnSide');
-  const backdrop = document.getElementById('backdrop');
-  if (btnSide && backdrop) {
-    btnSide.addEventListener('click', toggleSide);
-    backdrop.addEventListener('click', () => {
-      if (sb.classList.contains('open')) {
-        sb.classList.remove('open');
-        back.classList.remove('open');
-      }
-    });
-  }
-}
-
-async function loadModels() {
-  try {
-    const r = await fetch("/api/models");
-    const j = await r.json();
-    return j.models || models;
-  } catch (_) { return models; }
-}
-
-function fillModelSelect() {
-  const toggleSide = () => {
-    const sb = document.getElementById('sidebar');
-    const back = document.getElementById('backdrop');
-    if (!sb || !back) return;
-    sb.classList.toggle('open', back.classList.toggle('open'));
-  };
-  const btnSide = document.getElementById('btnSide');
-  const backdrop = document.getElementById('backdrop');
-  if (btnSide && backdrop) {
-    btnSide.addEventListener('click', toggleSide);
-    backdrop.addEventListener('click', () => {
-      if (sb.classList.contains('open')) {
-        sb.classList.remove('open');
-        back.classList.remove('open');
-      }
-    });
-  }
-}
-
-async function loadModels() {
   try {
     const r = await fetch("/api/models");
     const j = await r.json();
