@@ -1,4 +1,4 @@
-name = "nibras-ai"
+name = "chibani-ai"
 main = "worker.js"
 compatibility_date = "2026-10-15"
 
