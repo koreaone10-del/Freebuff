@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CHIBANI AI — منصة عالمية للذكاء الاصطناعي والابتكار والبرمجة</title>
 <meta name="description" content="منصة عالمية فخمة لذكاء اصطناعي مجاني بدون مفاتيح: دردشة مع تفكير عميق، بحث ومصادر، تحليل مواقع وملفات، رؤية، صوت، توليد صور وصوتيات، وإنتاج فيديو كامل — كل شيء في متصفحك وبلا حساب أو مفتاح API." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23e0c068'/><text y='72' x='50' text-anchor='middle' font-size='58'>✦</text></svg>" />
@@ -25,16 +25,26 @@
         <h1>CHIBANI<small>الذكاء الاصطناعي لجميع من يبتكر</small></h1>
       </div>
       <button class="btn-new" id="btnNew"><span>＋</span> محادثة جديدة</button>
+      <button class="acct" id="btnAccount" title="حسابك على هذا المتصفح">
+        <span class="av" id="acctAv">👤</span>
+        <span class="acct-tx">
+          <b id="acctName">زائر</b>
+          <small id="acctSub">سجّل ببريدك أو رقمك — مجاناً</small>
+        </span>
+        <span class="acct-go">‹</span>
+      </button>
       <div class="search-wrap">
         <input id="sessSearch" type="text" placeholder="ابحث في محادثاتك..." />
         <span class="icon">⌕</span>
       </div>
     </div>
     <div class="sessions" id="sessList"></div>
+    <div class="side-index" id="sideIndex"></div>
     <div class="side-foot">
       <button id="btnExport">⬇ حفظ نسخة</button>
       <button id="btnImport">⬆ استيراد</button>
       <button id="btnSettings">⚙ الإعدادات</button>
+      <button id="btnConnect">🔌 الربط</button>
     </div>
   </aside>
 
@@ -69,7 +79,7 @@
           </div>
           <div class="com-foot">
             <div class="ctx" id="ctxInfo"></div>
-            <div id="footNote">بدون مفاتيح API · بياناتك تبقى في متصفحك · 4 مزوّدين مجانيين</div>
+            <div id="footNote">بلا مفاتيح مدفوعة · بياناتك تبقى في متصفحك · أربعة مزوّدين مجانيين</div>
           </div>
         </div>
       </div>
@@ -91,19 +101,19 @@
       <button class="sm" data-p="tutor">🎓 مدرّس</button>
       <button class="sm" data-p="biz">💼 أعمال</button>
     </div>
-    <label>تعبئة الواجهة</label>
+    <label>تلوين الواجهة</label>
     <div class="seg" id="accentSeg">
       <button class="sm on" data-a="violet">بنفسجي ملكي</button>
       <button class="sm" data-a="emerald">زمرّدي</button>
       <button class="sm" data-a="rose">ذهبي وردي</button>
     </div>
-    <label>حالة المزوّدين (حية)</label>
+    <label>حالة المزوّدين الآن</label>
     <div class="prov-list" id="provList"></div>
     <div class="acts">
       <button id="btnClearAll" style="color:var(--danger)">🗑 تصفير الكل</button>
       <button id="btnSaveSettings" class="pri">حفظ</button>
     </div>
-    <div class="hint">🔒 كل شيء محفوظ في متصفحك فقط (IndexedDB). لا حسابات، لا مفاتيح، لا تتبّع. النماذج مجانية من Pollinations وLLM7 وKilo وOVH مع البحث عبر DuckDuckGo وJina.</div>
+    <div class="hint">🔒 المحادثات والإعدادات محفوظة في متصفحك فقط (IndexedDB وlocalStorage)، ولا حسابات على أي خادم ولا مفاتيح مدفوعة ولا تتبّع. الحساب اختياري ومحلي على هذا المتصفح وحده. النماذج مجانية من Pollinations وLLM7 وKilo وOVH، والبحث عبر DuckDuckGo وJina.</div>
   </div>
 </div>
 
@@ -140,7 +150,11 @@
     <div class="vd-stage" id="vdStage">
       <div class="vd-lines" id="vdLines"></div>
       <canvas id="vdPreview"></canvas>
-      <div class="vd-progress"><i id="vdBar"></i></div>
+      <div class="vd-meter">
+        <div class="vd-progress"><i id="vdBar"></i></div>
+        <span class="vd-pct" id="vdPct">0%</span>
+      </div>
+      <div class="vd-step" id="vdStep"></div>
     </div>
     <div class="vd-result" id="vdResult"></div>
     <div class="acts">
@@ -148,6 +162,105 @@
       <button id="vdStart" class="pri">✨ ابدأ الإنتاج</button>
     </div>
     <div class="hint">⏳ الإنتاج يسير بالزمن الحقيقي: فيديو 30 ثانية يستغرق نحو 30 ثانية تسجيل بعد تجهيز الصور والأصوات. أبقِ التبويب مفتوحاً ولا تُغلق النافذة حتى ينتهي. صيغة الإخراج <b>MP4 (H.264 + AAC)</b> مسجّلة داخل المتصفح نفسه في Chrome وEdge وSafari — بلا محوّل ولا خدمة خارجية — ومتصفحات لا تملك مُرمِّز MP4 (مثل Firefox) تحصل تلقائياً على WebM.</div>
+  </div>
+</div>
+
+<div class="overlay" id="accountOverlay">
+  <div class="modal">
+    <h3>👤 حسابي على CHIBANI</h3>
+    <div class="acct-guest" id="acctGuest">
+      <p class="st-lede">الحساب هنا هو <b>هوية محلية</b> تُنشئها على هذا الجهاز: بريدك أو رقم هاتفك ورمز سري، فيصبح لك ملف شخصي وسجل مستقل، ويُخزَّن كل شيء في متصفحك وحده. لا يُرسَل إلى أي خادم ولا يُطلب منك مفتاح.</p>
+      <div class="seg" id="acctTabs">
+        <button class="sm on" data-tab="register">✨ حساب جديد</button>
+        <button class="sm" data-tab="login">🔑 دخول</button>
+      </div>
+      <div id="acctForm">
+        <label id="acctNameLbl">الاسم الظاهر</label>
+        <input type="text" id="acctNameIn" placeholder="مثال: عبد الله" autocomplete="name" />
+        <div class="acct-row">
+          <div>
+            <label>البريد الإلكتروني</label>
+            <input type="text" id="acctEmail" placeholder="you@example.com" inputmode="email" autocomplete="email" dir="ltr" />
+          </div>
+          <div>
+            <label>أو رقم الهاتف (اختياري)</label>
+            <input type="text" id="acctPhone" placeholder="+212600000000" inputmode="tel" autocomplete="tel" dir="ltr" />
+          </div>
+        </div>
+        <div class="acct-row">
+          <div>
+            <label>الرمز السري (6 أحرف على الأقل)</label>
+            <input type="password" id="acctPass" placeholder="••••••" autocomplete="new-password" dir="ltr" />
+          </div>
+          <div id="acctPass2Wrap">
+            <label>تأكيد الرمز</label>
+            <input type="password" id="acctPass2" placeholder="••••••" autocomplete="new-password" dir="ltr" />
+          </div>
+        </div>
+        <div class="acct-err" id="acctErr"></div>
+        <div class="acts">
+          <button id="acctCancel">إغلاق</button>
+          <button class="pri" id="acctSubmit">إنشاء الحساب</button>
+        </div>
+      </div>
+    </div>
+    <div class="acct-profile hidden" id="acctProfile">
+      <div class="acct-card">
+        <div class="acct-ava" id="acctBigAv">ع</div>
+        <div class="acct-info">
+          <b id="acctBigName">—</b>
+          <span id="acctBigEmail" dir="ltr">—</span>
+          <span id="acctBigSince"></span>
+        </div>
+      </div>
+      <div class="acct-stats" id="acctStats"></div>
+      <div class="acts">
+        <button id="acctLogout" style="color:var(--danger)">تسجيل الخروج</button>
+        <button class="pri" id="acctDone">تم</button>
+      </div>
+    </div>
+    <div class="hint">🔒 رمزك السري يُخزَّن كبصمة مُشتقّة (PBKDF2-SHA256 بـ 150 ألف دورة) داخل متصفحك فقط، ولا يُحفظ كنص صريح. امسح بيانات المتصفح = يُمحى الحساب نهائياً، فلا تُعِد استخدام رمزاً تثق به في خدمات أخرى.</div>
+  </div>
+</div>
+
+<div class="overlay" id="connectOverlay">
+  <div class="modal">
+    <h3>🔌 ربط الخدمات</h3>
+    <p class="st-lede">اربط حسابك في GitHub أو Render أو Facebook لتعمل من مكان واحد. رمز الوصول يُدخله صاحب الحساب بنفسه ويبقى في متصفحه؛ ولا يوجد أي مفتاح مكتوب داخل الشيفرة. يُمرَّر الرمز عند الطلب فقط عبر خادمك إلى المزوّد ولا يُسجَّل ولا يُخزَّن هناك.</p>
+    <div class="conn-list" id="connList">
+      <div class="conn" data-svc="github">
+        <div class="conn-head"><span class="conn-ic">🐙</span><b>GitHub</b><span class="conn-state" id="connStateGithub">غير مربوط</span></div>
+        <p>اعرض مستودعاتك وأنشئ Gist من المحادثة مباشرة.</p>
+        <div class="conn-form">
+          <input type="password" id="connTokGithub" placeholder="ghp_... رمز وصول شخصي (صلاحية repo أو gist)" dir="ltr" autocomplete="off" />
+          <button class="mini-btn" data-act="save" data-svc="github">ربط</button>
+          <button class="mini-btn" data-act="drop" data-svc="github">قطع</button>
+        </div>
+        <div class="conn-out" id="connOutGithub"></div>
+      </div>
+      <div class="conn" data-svc="render">
+        <div class="conn-head"><span class="conn-ic">🚀</span><b>Render</b><span class="conn-state" id="connStateRender">غير مربوط</span></div>
+        <p>اعرض خدماتك وحالة نشرها على Render.</p>
+        <div class="conn-form">
+          <input type="password" id="connTokRender" placeholder="rnd_... مفتاح API من لوحة Render" dir="ltr" autocomplete="off" />
+          <button class="mini-btn" data-act="save" data-svc="render">ربط</button>
+          <button class="mini-btn" data-act="drop" data-svc="render">قطع</button>
+        </div>
+        <div class="conn-out" id="connOutRender"></div>
+      </div>
+      <div class="conn" data-svc="facebook">
+        <div class="conn-head"><span class="conn-ic">📘</span><b>Facebook</b><span class="conn-state" id="connStateFacebook">غير مربوط</span></div>
+        <p>اعرض حسابك وصفحاتك التي تديرها.</p>
+        <div class="conn-form">
+          <input type="password" id="connTokFacebook" placeholder="رمز وصول المستخدم أو الصفحة" dir="ltr" autocomplete="off" />
+          <button class="mini-btn" data-act="save" data-svc="facebook">ربط</button>
+          <button class="mini-btn" data-act="drop" data-svc="facebook">قطع</button>
+        </div>
+        <div class="conn-out" id="connOutFacebook"></div>
+      </div>
+    </div>
+    <div class="acts"><button class="pri" id="connClose">تم</button></div>
+    <div class="hint">لا نطلب منك أي مفتاح مدفوع ولا نضع واحداً في الكود. هذه الرموز تخصّك أنت، تُخزَّن مشفّرة الوصول إليها في متصفحك فقط، ويمكنك قطع أي خدمة بزر واحد في أي وقت.</div>
   </div>
 </div>
 
@@ -168,8 +281,11 @@
 <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.7.2/mammoth.browser.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="/mp4.js"></script>
 <script src="/webm.js"></script>
+<script src="/studio.js"></script>
+<script src="/account.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

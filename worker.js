@@ -614,6 +614,114 @@ async function handleTTS(rawText, rawLang) {
   });
 }
 
+// ---------- تمرير الصور: يمنع تلويث Canvas ويوحّد الصيغة ----------
+async function handleImage(url) {
+  const prompt = maxChars(String(url.searchParams.get("prompt") || "").trim(), 700);
+  if (!prompt) return jsonError(400, "لا يوجد وصف للصورة");
+  const num = (v, d) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n > 0 ? Math.min(1600, Math.max(256, n)) : d;
+  };
+  const w = num(url.searchParams.get("width"), 1024);
+  const h = num(url.searchParams.get("height"), 1024);
+  const seed = Number(url.searchParams.get("seed")) || Math.floor(Math.random() * 1000000);
+  const base = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
+    "?width=" + w + "&height=" + h + "&nologo=true&seed=" + seed + "&model=";
+  for (const model of ["flux", "turbo"]) {
+    try {
+      const r = await fetch(base + model, { headers: UA });
+      if (!r.ok) continue;
+      const ct = r.headers.get("content-type") || "";
+      if (!ct.startsWith("image/")) continue;
+      const buf = await r.arrayBuffer();
+      if (buf.byteLength < 1024) continue;
+      return new Response(buf, {
+        headers: {
+          "content-type": ct,
+          "cache-control": "public, max-age=86400, immutable",
+          "x-image-size": w + "x" + h
+        }
+      });
+    } catch (_) {}
+  }
+  return jsonError(502, "خدمة توليد الصور مزدحمة الآن — أعد المحاولة بعد نصف دقيقة.");
+}
+
+// ---------- وسيط ربط محصور: يمرّر رمز المستخدم إلى مزوّد محدَّد فقط ----------
+const CONNECT = {
+  github: { base: "https://api.github.com", prefixes: ["/user", "/gists"], auth: "bearer" },
+  render: { base: "https://api.render.com/v1", prefixes: ["/services", "/owners"], auth: "bearer" },
+  facebook: { base: "https://graph.facebook.com/v20.0", prefixes: ["/me"], auth: "query" }
+};
+
+async function handleConnect(req) {
+  const token = String(req.headers.get("x-cb-token") || "").trim();
+  if (!token) return jsonError(401, "أضف رمز الوصول أولاً");
+  if (token.length < 8 || token.length > 600) return jsonError(400, "رمز الوصول غير صالح");
+
+  let body = null;
+  try { body = await req.json(); } catch (_) { return jsonError(400, "طلب غير صالح"); }
+  if (!body || typeof body !== "object") return jsonError(400, "طلب غير صالح");
+
+  const svc = CONNECT[String(body.service || "")];
+  if (!svc) return jsonError(400, "خدمة غير مدعومة");
+
+  const path = String(body.path || "");
+  if (!path.startsWith("/") || path.length > 200) return jsonError(400, "مسار غير صالح");
+  if (/[?#\\]|\.\.|\/\//.test(path)) return jsonError(400, "مسار غير صالح");
+  if (!svc.prefixes.some((p) => path.startsWith(p))) return jsonError(403, "مسار غير مسموح لهذه الخدمة");
+
+  const method = String(body.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "POST") return jsonError(405, "طريقة غير مسموحة");
+
+  let target;
+  try { target = new URL(svc.base + path); } catch (_) { return jsonError(400, "مسار غير صالح"); }
+  if (target.origin !== new URL(svc.base).origin) return jsonError(400, "مسار غير صالح");
+
+  const q = body.query && typeof body.query === "object" ? body.query : {};
+  for (const k of Object.keys(q).slice(0, 12)) {
+    if (!/^[a-zA-Z0-9_.\-]{1,40}$/.test(k)) continue;
+    const v = q[k];
+    if (typeof v === "string" || typeof v === "number") {
+      target.searchParams.set(k, maxChars(String(v), 120));
+    }
+  }
+  if (svc.auth === "query") target.searchParams.set("access_token", token);
+
+  const headers = { ...UA, accept: "application/json" };
+  if (svc.auth === "bearer") headers.authorization = "Bearer " + token;
+
+  let payload = null;
+  if (method === "POST") {
+    headers["content-type"] = "application/json";
+    payload = JSON.stringify(body.body && typeof body.body === "object" ? body.body : {});
+  }
+
+  let resp;
+  try {
+    resp = await fetch(target.toString(), { method, headers, body: payload });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, status: 0, error: "تعذّر الوصول إلى المزوّد من الخادم" }), {
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+
+  const text = await resp.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) {}
+  if (!resp.ok) {
+    const msg = data && (data.message || data.error_description || (data.error && data.error.message)) || maxChars(text, 240);
+    return new Response(JSON.stringify({ ok: false, status: resp.status, error: String(msg || "رفض المزوّد الطلب") }), {
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+  return new Response(JSON.stringify({
+    ok: true,
+    status: resp.status,
+    data: data != null ? data : maxChars(text, 4000)
+  }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
 // ---------- نقاط الوصول ----------
 async function handle(req, env) {
   const url = new URL(req.url);
@@ -659,6 +767,12 @@ async function handle(req, env) {
 
   if (p === "/api/search") return handleSearch(url.searchParams.get("q") || "");
   if (p === "/api/tts") return handleTTS(url.searchParams.get("text") || "", url.searchParams.get("lang") || "ar");
+  if (p === "/api/image") return handleImage(url);
+
+  if (p === "/api/connect") {
+    if (req.method !== "POST") return jsonError(405, "استخدم POST");
+    try { return await handleConnect(req); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
 
   if (p === "/api/video/plan" && req.method === "POST") {
     try { return await handleVideoPlan(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
