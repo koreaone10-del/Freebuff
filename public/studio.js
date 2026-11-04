@@ -131,43 +131,109 @@
     });
   }
 
-  async function sceneImage(prompt, w, h, seed) {
-    const q = new URLSearchParams({ prompt: prompt, width: String(w), height: String(h), seed: String(seed) });
-    const url = "/api/image?" + q.toString();
-    try {
-      return { img: await loadImage(url), url: url };
-    } catch (_) {
-      // محاولة ثانية ببذرة أخرى
-      const q2 = new URLSearchParams({ prompt: prompt + ", beautiful composition", width: String(w), height: String(h), seed: String(seed + 77) });
-      const url2 = "/api/image?" + q2.toString();
-      try { return { img: await loadImage(url2, 70000), url: url2 }; } catch (_2) { return { img: null, url: "" }; }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitCountdown(sec, onWait) {
+    for (let left = Math.ceil(sec); left > 0; left--) {
+      if (S.canceled) throw new Error("أُلغي الإنتاج");
+      if (onWait) onWait(left);
+      await sleep(1000);
     }
   }
 
-  function placeholder(w, h, i, caption) {
+  async function fetchImage(url, timeout) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout || 95000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok) {
+        let j = null;
+        try { j = await res.json(); } catch (_) {}
+        const retry = Number(res.headers.get("x-retry-after")) || (j && Number(j.retry)) || 0;
+        const err = new Error((j && j.error) || "تعذّر توليد الصورة (" + res.status + ")");
+        err.status = res.status;
+        err.retry = retry;
+        throw err;
+      }
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const img = await loadImage(objUrl, 20000);
+      return { img: img, url: objUrl };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // صورة واحدة قد تحجبها حصة الخدمة المجانية (صورة كل 45 ثانية): ننتظر ونعيد المحاولة.
+  async function sceneImage(prompt, w, h, seed, onWait) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (S.canceled) throw new Error("أُلغي الإنتاج");
+      const q = new URLSearchParams({
+        prompt: attempt === 2 ? prompt + ", beautiful composition" : prompt,
+        width: String(w),
+        height: String(h),
+        seed: String(seed + attempt * 131)
+      });
+      try {
+        const got = await fetchImage("/api/image?" + q.toString(), 95000);
+        return { img: got.img, url: got.url, ok: true };
+      } catch (e) {
+        if (e.name === "AbortError") { if (S.canceled) throw new Error("أُلغي الإنتاج"); }
+        if (e.status === 429 && Number(e.retry) > 0 && attempt < 2) {
+          await waitCountdown(Math.min(60, Number(e.retry) + 1), onWait);
+          continue;
+        }
+        if (attempt < 2) await sleep(1500);
+      }
+    }
+    return { img: null, url: "", ok: false };
+  }
+
+  // خلفية بديلة راقية حين تنتهي حصة الصور المجانية: مزيج ضوء سينمائي لا لون مسطّح.
+  function placeholder(w, h, i) {
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     const g = c.getContext("2d");
-    const hue = (i * 57) % 360;
-    const grad = g.createLinearGradient(0, 0, w, h);
-    grad.addColorStop(0, "hsl(" + hue + ",55%,22%)");
-    grad.addColorStop(1, "hsl(" + ((hue + 60) % 360) + ",45%,10%)");
+    const hue = (i * 47 + 200) % 360;
+    const grad = g.createLinearGradient(0, 0, w * 0.6, h);
+    grad.addColorStop(0, "hsl(" + hue + ",42%,16%)");
+    grad.addColorStop(0.55, "hsl(" + ((hue + 35) % 360) + ",38%,9%)");
+    grad.addColorStop(1, "#05050b");
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);
-    g.fillStyle = "rgba(255,255,255,.08)";
-    for (let k = 0; k < 40; k++) {
-      g.beginPath();
-      g.arc(Math.random() * w, Math.random() * h, Math.random() * (w / 26) + 6, 0, Math.PI * 2);
-      g.fill();
+    for (let k = 0; k < 5; k++) {
+      const r = w * (0.25 + Math.random() * 0.4);
+      const rg = g.createRadialGradient(Math.random() * w, Math.random() * h * 0.7, 0, Math.random() * w, Math.random() * h * 0.7, r);
+      rg.addColorStop(0, "hsla(" + ((hue + k * 40) % 360) + ",60%,45%,.16)");
+      rg.addColorStop(1, "hsla(0,0%,0%,0)");
+      g.fillStyle = rg;
+      g.fillRect(0, 0, w, h);
     }
-    g.fillStyle = "rgba(255,255,255,.85)";
-    g.font = "700 " + Math.round(w * 0.035) + "px Cairo, Tahoma, sans-serif";
-    g.textAlign = "center";
-    g.direction = "rtl";
-    g.fillText("مشهد " + (i + 1), w / 2, h / 2);
-    const img = new Image();
-    img.src = c.toDataURL("image/png");
-    return img;
+    const vg = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.72);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,.62)");
+    g.fillStyle = vg;
+    g.fillRect(0, 0, w, h);
+    return c;
+  }
+
+  // تنويع بصري من صورة موجودة (قصّ/تكبير/انعكاس/تدرّج لوني) بدل تكرار المشهد نفسه حرفياً.
+  function variantOf(src, w, h, i) {
+    if (!src || !src.width) return placeholder(w, h, i);
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    const zoom = 1.15 + (i % 3) * 0.12;
+    const sw = src.width / zoom, sh = src.height / zoom;
+    const sx = (src.width - sw) * ((i % 3) / 2);
+    const sy = (src.height - sh) * ((i % 2) ? 0.8 : 0.2);
+    if (i % 2) { g.translate(w, 0); g.scale(-1, 1); }
+    g.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const tone = ["rgba(0,10,40,.30)", "rgba(50,10,0,.26)", "rgba(0,30,20,.26)"][i % 3];
+    g.fillStyle = tone;
+    g.fillRect(0, 0, w, h);
+    return c;
   }
 
   /* ------------------------------- النطق --------------------------------- */
@@ -406,19 +472,32 @@
       /* 2) الصور */
       if (phases) phases.set("img", "act");
       const images = [];
+      let fallbackUsed = 0;
       for (let i = 0; i < S.n; i++) {
         if (S.canceled) throw new Error("أُلغي الإنتاج");
         const sc = S.plan.scenes[i];
         const prompt = (sc.image || "cinematic scene") + ", " + styleText + ", no text, no watermark";
-        pct(0.08 + 0.47 * (i / S.n), "أرسم المشهد " + (i + 1) + " من " + S.n + "… (" + Math.round((i / S.n) * 100) + "%)");
-        const got = await sceneImage(prompt, W, H, 1000 + i * 37 + Math.floor(Math.random() * 90));
+        pct(0.08 + 0.47 * (i / S.n), "أرسم المشهد " + (i + 1) + " من " + S.n + "… (" + Math.round((i / S.n) * 100) + "% من الصور)");
+        const base = 0.08 + 0.47 * (i / S.n);
+        const got = await sceneImage(prompt, W, H, 1000 + i * 37 + Math.floor(Math.random() * 90), (left) => {
+          pct(base, "حصة الصور المجانية ممتلئة — انتظار " + left + "ث للمشهد " + (i + 1) + "…");
+        });
         if (S.canceled) throw new Error("أُلغي الإنتاج");
-        images.push(got.img || placeholder(W, H, i, sc.caption));
+        if (!got.ok) {
+          fallbackUsed++;
+          if (phases) phases.set("img", "act", "تنويع بصري للمشهد " + (i + 1) + " (حصة الصور ممتلئة)");
+        }
+        const fallback = got.img
+          ? got.img
+          : (images.length ? variantOf(images[i % images.length], W, H, i) : placeholder(W, H, i));
+        images.push(fallback);
         S.images = images;
         pct(0.08 + 0.47 * ((i + 1) / S.n), "اكتملت صورة المشهد " + (i + 1) + " من " + S.n + " — " + Math.round(((i + 1) / S.n) * 100) + "% من الصور");
       }
       S.images = images;
-      if (phases) phases.set("img", "done", "الصور جاهزة (" + images.length + ")");
+      if (phases) phases.set("img", "done", fallbackUsed
+        ? "الصور جاهزة (" + (images.length - fallbackUsed) + " مولّدة، " + fallbackUsed + " بديلة)"
+        : "الصور جاهزة (" + images.length + ")");
       pct(0.56, "الصور جاهزة — أجهّز الصوت…");
 
       /* 3) التعليق الصوتي */
@@ -533,6 +612,8 @@
 
       const ext = out.mime.includes("mp4") ? "mp4" : "webm";
       showResult(blob, out.mime, total, ext, note);
+      const box = $("#vdResult");
+      if (box) setTimeout(() => { try { box.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (_) {} }, 200);
       deliverToChat(out.mime, total, ext);
 
     } catch (e) {

@@ -1062,7 +1062,7 @@
     const parts = [];
     if (settings.skill && SKILLS[settings.skill]) parts.push('<span class="on-skill">🎯 ' + esc(SKILLS[settings.skill].label) + "</span>");
     if (S.attachments.length) parts.push("📎 " + S.attachments.length + " مرفق");
-    parts.push("~" + estTokens(text) + " رمز");
+    parts.push('الرموز <span dir="ltr">≈' + estTokens(text) + "</span>");
     box.innerHTML = parts.join(" · ");
   }
 
@@ -1500,8 +1500,18 @@
       video: "اكتب موضوع الفيديو ثم اضغط إرسال لفتح الاستوديو…",
       handle: "ألصق نصاً أو رابطاً لاستخدام الأدوات…"
     };
-    if (input) input.placeholder = hints[mode] || hints.chat;
+    const shortHints = {
+      chat: "اكتب رسالتك…",
+      research: "سؤال للبحث العميق…",
+      site: "ألصق رابط موقع…",
+      img: "اوصف الصورة…",
+      video: "موضوع الفيديو…",
+      handle: "ألصق نصاً أو رابطاً…"
+    };
+    const narrow = window.matchMedia && window.matchMedia("(max-width: 560px)").matches;
+    if (input) input.placeholder = (narrow ? shortHints[mode] : hints[mode]) || hints.chat;
     if (mode === "handle") runTools();
+    if (mode === "video" && CB.studio) CB.studio.open(input ? input.value.trim() : "");
   }
 
   function startDictation() {

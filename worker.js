@@ -627,24 +627,61 @@ async function handleImage(url) {
   const seed = Number(url.searchParams.get("seed")) || Math.floor(Math.random() * 1000000);
   const base = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
     "?width=" + w + "&height=" + h + "&nologo=true&seed=" + seed + "&model=";
-  for (const model of ["flux", "turbo"]) {
-    try {
-      const r = await fetch(base + model, { headers: UA });
-      if (!r.ok) continue;
-      const ct = r.headers.get("content-type") || "";
-      if (!ct.startsWith("image/")) continue;
-      const buf = await r.arrayBuffer();
-      if (buf.byteLength < 1024) continue;
-      return new Response(buf, {
-        headers: {
-          "content-type": ct,
-          "cache-control": "public, max-age=86400, immutable",
-          "x-image-size": w + "x" + h
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let lastStatus = 0;
+  let lastDetail = "";
+  for (let round = 0; round < 2; round++) {
+    for (const model of ["flux", "turbo"]) {
+      try {
+        const r = await fetch(base + model + (round ? "&retry=" + round : ""), { headers: UA });
+        lastStatus = r.status;
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          lastDetail = maxChars(txt, 200);
+          if (r.status === 402 || r.status === 429) {
+            const m = /retry after\s+(\d+)\s*s/i.exec(txt) || /"retry"\s*:\s*(\d+)/i.exec(txt);
+            const wait = m ? Math.min(120, Number(m[1])) : 0;
+            if (wait > 0) {
+              return new Response(JSON.stringify({
+                error: "حصة الصور المجانية ممتلئة — إعادة المحاولة بعد " + wait + " ثانية.",
+                retry: wait,
+                upstream: r.status
+              }), {
+                status: 429,
+                headers: {
+                  "content-type": "application/json",
+                  "cache-control": "no-store",
+                  "x-retry-after": String(wait)
+                }
+              });
+            }
+          }
+          continue;
         }
-      });
-    } catch (_) {}
+        const ct = r.headers.get("content-type") || "";
+        if (!ct.startsWith("image/")) { lastDetail = "نوع غير متوقع: " + ct; continue; }
+        const buf = await r.arrayBuffer();
+        if (buf.byteLength < 1024) { lastDetail = "حجم صغير جداً"; continue; }
+        return new Response(buf, {
+          headers: {
+            "content-type": ct,
+            "cache-control": "public, max-age=86400, immutable",
+            "x-image-size": w + "x" + h,
+            "x-image-model": model
+          }
+        });
+      } catch (e) { lastDetail = String(e).slice(0, 120); }
+    }
+    if (round === 0) await sleep(450);
   }
-  return jsonError(502, "خدمة توليد الصور مزدحمة الآن — أعد المحاولة بعد نصف دقيقة.");
+  return new Response(JSON.stringify({
+    error: "خدمة توليد الصور مزدحمة الآن — أعد المحاولة بعد نصف دقيقة.",
+    upstream: lastStatus,
+    detail: lastDetail
+  }), {
+    status: 502,
+    headers: { "content-type": "application/json", "cache-control": "no-store" }
+  });
 }
 
 // ---------- وسيط ربط محصور: يمرّر رمز المستخدم إلى مزوّد محدَّد فقط ----------

@@ -121,7 +121,7 @@ aside {
 }
 .sess:hover { background: var(--glass2); }
 .sess.active { background: var(--grad-soft); border-color: var(--stroke2); }
-.sess.active::before { content: ""; position: absolute; inset-inline-start: -10px; width: 3px; height: 60%; background: var(--gold); border-radius: 3px; }
+.sess.active::before { content: ""; position: absolute; inset-inline-start: 2px; width: 3px; height: 60%; background: var(--gold); border-radius: 3px; }
 .sess .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sess .x { opacity: 0; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 6px; }
 .sess:hover .x { opacity: 1; }
@@ -428,7 +428,7 @@ textarea, input, select, button { font-family: inherit; }
 .hidden { display: none !important; }
 
 .toast {
-  position: fixed; bottom: 26px; left: 50%; right: auto; transform: translateX(-50%);
+  position: fixed; top: 14px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%);
   background: #16161f; border: 1px solid var(--stroke2); color: var(--text); padding: 10px 20px;
   border-radius: 12px; font-size: 13px; z-index: 90; box-shadow: var(--shadow); animation: fadeUp .3s ease both;
   max-width: min(92vw, 520px); text-align: center; line-height: 1.7;
@@ -437,9 +437,8 @@ textarea, input, select, button { font-family: inherit; }
 /* تجاوب الموبايل */
 @media (max-width: 900px) {
   #app { grid-template-columns: 1fr; }
-  aside { position: fixed; inset: 0 0 0 auto; width: min(320px, 88vw); z-index: 40; transform: translateX(105%); transition: .3s; box-shadow: var(--shadow); }
-  html[dir="rtl"] aside { transform: translateX(-105%); }
-  aside.open { transform: translateX(0) !important; }
+  aside { position: fixed; inset: 0 0 0 auto; width: min(320px, 88vw); z-index: 40; transform: translateX(105%); transition: transform .3s; box-shadow: var(--shadow); }
+  aside.open { transform: translateX(0); }
   .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); z-index: 35; display: none; }
   .backdrop.open { display: block; }
   .chip { font-size: 12px; padding: 8px 12px; }
@@ -635,3 +634,25 @@ textarea, input, select, button { font-family: inherit; }
 .si-item b { color: var(--gold2); font-size: 10.5px; }
 .si-item:hover { border-color: var(--stroke2); background: var(--glass2); }
 .si-item.on { background: var(--grad-soft); border-color: transparent; color: #fff; }
+
+/* صقل الجوال: شريط أوضاع قابل للتمرير، وتنبيه أسفل الرأس */
+.toast { top: 62px; }
+@media (max-width: 600px) {
+  .modebar {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -ms-overflow-style: none;
+    padding-bottom: 2px; -webkit-overflow-scrolling: touch;
+  }
+  .modebar::-webkit-scrollbar { display: none; }
+  .mode-chip { flex: 0 0 auto; }
+  .com-foot { flex-wrap: wrap; gap: 4px; }
+  .com-foot #footNote { display: none; }
+  .com-foot .ctx { font-size: 10px; }
+}
+@media (orientation: portrait) and (max-width: 720px) {
+  .welcome { padding-top: 4vh; }
+  .welcome .hero-logo { width: 66px; height: 66px; font-size: 32px; margin-bottom: 14px; }
+  .welcome p { font-size: 13px; line-height: 1.85; margin-bottom: 18px; }
+  .skills { gap: 8px; margin-bottom: 14px; }
+  .skill { padding: 10px 12px; }
+}
