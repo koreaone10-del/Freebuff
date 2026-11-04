@@ -1,5 +1,5 @@
 // ============================================================
-// نبراس AI — Worker بدون أي مفاتيح API
+// CHIBANI AI — Worker بدون أي مفاتيح API
 // يعتمد فقط على مزوّدين مجانيين يعملون بدون حساب:
 //  1) Pollinations  (GPT-OSS-20B: تفكير + أدوات)
 //  2) LLM7.io       (MiniMax-M2.7، Codestral)
@@ -557,7 +557,7 @@ async function handleVideoPlan(body) {
 
   return new Response(JSON.stringify({
     title: maxChars(String((j && j.title) || topic).trim(), 90),
-    subtitle: maxChars(String((j && j.subtitle) || "فيديو من إنتاج نبراس AI").trim(), 130),
+    subtitle: maxChars(String((j && j.subtitle) || "فيديو من إنتاج CHIBANI AI").trim(), 130),
     mood: ["calm", "epic", "uplifting", "mysterious"].includes(j && j.mood) ? j.mood : "calm",
     scenes,
     provider: got ? (got.provider + " · " + got.model) : "خطة محلية"
