@@ -1,7 +1,24 @@
 name = "chibani-ai"
 main = "worker.js"
-compatibility_date = "2026-10-15"
+compatibility_date = "2026-11-04"
 
 [assets]
 directory = "./public"
 binding = "ASSETS"
+
+# إعدادات Pages (سحباً من GitHub)
+# Build command: خالي — الملفات الثابتة فقط
+# Output directory: public
+# Environments: اضف متغيراتك من Settings → Environment variables
+# Domains: أضف subdomain أو مخصص في DevOps → Pages
+# الوظائف: worker.js يعالج /api/* تلقائياً و يزود /static
+#
+# طريقة التحقق:
+# https://<project>.pages.dev/api/health
+# https://<project>.pages.dev/api/models
+# https://<project>.pages.dev/
+# https://<project>.pages.dev/style.css
+# https://<project>.pages.dev/app.js
+# https://<project>.pages.dev/mp4.js
+# https://<project>.pages.dev/webm.js
+

@@ -109,6 +109,7 @@ const DEFAULT_SYSTEM = "أنت «نبراس» — مساعد ذكاء اصطنا
   try { Object.assign(settings, JSON.parse(localStorage.getItem("chibani_settings") || "{}")); } catch (_) {}
   applyAccent(settings.accent);
   loadModels().then(ms => { models = ms; fillModelSelect(); });
+  setupMobile();
   sessions = await DB.all();
   sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   if (sessions.length) activeId = sessions[0].id; else newSession();
@@ -117,6 +118,75 @@ const DEFAULT_SYSTEM = "أنت «نبراس» — مساعد ذكاء اصطنا
   setInterval(refreshHealth, 25000);
   bindUI();
 })();
+
+// ===== تنبيه الجوال =====
+function setupMobile() {
+  const toggleSide = () => {
+    const sb = document.getElementById('sidebar');
+    const back = document.getElementById('backdrop');
+    if (!sb || !back) return;
+    sb.classList.toggle('open', back.classList.toggle('open'));
+  };
+  const btnSide = document.getElementById('btnSide');
+  const backdrop = document.getElementById('backdrop');
+  if (btnSide && backdrop) {
+    btnSide.addEventListener('click', toggleSide);
+    backdrop.addEventListener('click', () => {
+      if (sb.classList.contains('open')) {
+        sb.classList.remove('open');
+        back.classList.remove('open');
+      }
+    });
+  }
+}
+
+async function loadModels() {
+  const toggleSide = () => {
+    const sb = document.getElementById('sidebar');
+    const back = document.getElementById('backdrop');
+    if (!sb || !back) return;
+    sb.classList.toggle('open', back.classList.toggle('open'));
+  };
+  const btnSide = document.getElementById('btnSide');
+  const backdrop = document.getElementById('backdrop');
+  if (btnSide && backdrop) {
+    btnSide.addEventListener('click', toggleSide);
+    backdrop.addEventListener('click', () => {
+      if (sb.classList.contains('open')) {
+        sb.classList.remove('open');
+        back.classList.remove('open');
+      }
+    });
+  }
+}
+
+async function loadModels() {
+  try {
+    const r = await fetch("/api/models");
+    const j = await r.json();
+    return j.models || models;
+  } catch (_) { return models; }
+}
+
+function fillModelSelect() {
+  const toggleSide = () => {
+    const sb = document.getElementById('sidebar');
+    const back = document.getElementById('backdrop');
+    if (!sb || !back) return;
+    sb.classList.toggle('open', back.classList.toggle('open'));
+  };
+  const btnSide = document.getElementById('btnSide');
+  const backdrop = document.getElementById('backdrop');
+  if (btnSide && backdrop) {
+    btnSide.addEventListener('click', toggleSide);
+    backdrop.addEventListener('click', () => {
+      if (sb.classList.contains('open')) {
+        sb.classList.remove('open');
+        back.classList.remove('open');
+      }
+    });
+  }
+}
 
 async function loadModels() {
   try {

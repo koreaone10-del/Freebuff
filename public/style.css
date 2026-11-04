@@ -43,6 +43,32 @@ body {
   direction: rtl;
 }
 
+/* تدوير الصفحة للتأقلم مع عرض الشاشة على الجوال */
+@media (max-aspect-ratio: 4/3) {
+  .welcome h2 { font-size: 22px; }
+  .welcome p { font-size: 13px; }
+  .mode-chip { font-size: 11px; padding: 5px 10px; }
+  .chip { font-size: 11.5px; padding: 8px 12px; }
+  .feat { font-size: 11px; gap: 16px; }
+}
+
+/* الحفاظ على الصفحة عموديًا في المتصفحات الحديثة */
+@media (orientation: portrait) and (max-width: 720px) {
+  #app { grid-template-columns: 1fr; height: 100dvh; }
+  aside { width: min(300px, 86vw); }
+  .welcome { padding-top: 12vh; }
+  .welcome h2 { font-size: 22px; }
+  #chat { padding: 20px 14px 8px; }
+  .composer { padding: 10px 10px 8px; border-radius: 18px; }
+  .genimg { max-width: 100%; }
+  .vd-final video { max-height: 46dvh; }
+}
+
+/* العرض المتوسط */
+@media (min-width: 721px) and (max-aspect-ratio: 16/9) {
+  aside { width: 300px; }
+}
+
 ::selection { background: rgba(124, 92, 255, .4); }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -418,4 +444,34 @@ textarea, input, select, button { font-family: inherit; }
   .chip { font-size: 12px; padding: 8px 12px; }
   .welcome h2 { font-size: 24px; }
   #modelSel { max-width: 150px; }
+}
+
+/* الشاشات الصغيرة جداً: نعرض الجانب في العملية السفلية مع أسفل دائم */
+@media (max-width: 420px) {
+  aside { width: min(290px, 92vw); }
+  .brand h1 { font-size: 15.5px; }
+  .side-head { padding: 14px 12px 8px; }
+  .sidemove { min-width: 56px; min-height: 56px; }
+  .sess { font-size: 12.5px; padding: 8px 10px; }
+  .side-foot { padding: 8px 10px 10px; }
+}
+
+/* تشكيل가사 السلس للجوال */
+@media (max-width: 600px) {
+  body { font-size: 14.5px; }
+  .msg { gap: 8px; }
+  .msg .body { font-size: 13.8px; }
+  .chat-col { padding-inline: 10px; }
+  .composer-col { padding-inline: 10px; }
+  .modebar { gap: 5px; }
+  .mode-chip { font-size: 11.5px; padding: 5px 11px; }
+  .cbtn { width: 34px; height: 34px; }
+  .cbtn.send { width: 40px; height: 40px; border-radius: 12px; }
+  #input { font-size: 14px; min-height: 110px; padding: 5px 0; }
+}
+
+/* الحفاظ على الشريط الجانبي في الأسفل على الشاشات العرضية */
+@media (max-aspect-ratio: 16/9) and (min-width: 721px) {
+  #app { grid-template-rows: 1fr auto; height: 100vh; }
+  #app:not(.side-open) aside { position: relative; transform: none; }
 }
