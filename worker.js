@@ -899,6 +899,120 @@ async function handle(req, env) {
     try { return await handleAudio(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
   }
 
+  // ---------- مسح مصادر مفتوحة - OSINT ----------
+  // كل مصدر: عنوان، وصف عربي قصير، وطريقة بحث (get / post)
+  const OSINT_SOURCES = [
+    {
+      id: "facecheck",
+      name: "Facecheck",
+      host: "https://facecheck.id",
+      label: "بحث صورة بواسطة الوجه (بحث في الصور والفيbes واتصالات) - رابط مباشر محسن للوحة البحث",
+      style: "search-by-image and people-search",
+      path: (q) => encodeURIComponent(q),
+      query: (q) => "q=" + q
+    },
+    {
+      id: "robin",
+      name: "Robin",
+      host: "https://robin.me",
+      label: "سجل شخصي واتصالات مجانية - ابحث عن الشخص عبر صورته أو اسمه",
+      style: "profile and contact lookup",
+      path: (q) => encodeURIComponent(q),
+      query: (q) => "q=" + q
+    },
+    {
+      id: "airplanes",
+      name: "Airplanes",
+      host: "https://airplanes.live",
+      label: "قاعدة بيانات الطيران والرحلات - تحقق من رحلات الطائرات والشركات والدخول الجوي",
+      style: "flight and airport database",
+      path: (q) => encodeURIComponent(q),
+      query: (q) => "q=" + q
+    }
+  ];
+
+  async function fetchOSINT(url) {
+    try {
+      const r = await fetch(url, { headers: { ...UA, accept: "text/html,application/xhtml+xml" } });
+      if (!r.ok) return null;
+      const ct = r.headers.get("content-type") || "";
+      if (ct.includes("application/json")) return await r.json();
+      return await r.text();
+    } catch (_) { return null; }
+  }
+
+  // تنسيق النتيجة بالعربية (عنوان + مصدر + وصف + رابط)
+  function formatResult(src, title, description, url) {
+    return {
+      source: src.name,
+      host: src.host,
+      title: title || "بحث عن " + (title || "الوجه او الاسم"),
+      description: description || "",
+      url: url || "",
+      icon: src.icon
+    };
+  }
+
+  async function handleOSINT(body) {
+    const q = String(body.query || body.q || "").trim();
+    if (!q) return jsonError(400, "أدخل مصطلح البحث");
+
+    const out = { query: q, sources: [], raw: [] };
+
+    for (const src of OSINT_SOURCES) {
+      let url;
+      try {
+        const u = new URL(src.host);
+        u.pathname = src.path ? src.path(q) : "";
+        u.search = src.query ? ("" + u.search + "&" + src.query(q)) : u.search;
+        url = u.toString();
+      } catch (_) { continue; }
+
+      let data;
+      try {
+        data = await fetchOSINT(url);
+      } catch (_) { data = null; }
+
+      if (data && typeof data === "object" && Array.isArray(data.results)) {
+        for (const r of data.results.slice(0, 12)) {
+          const title = r.title || r.name || r.url || null;
+          const desc = r.description || r.summary || r.keyword || "";
+          const u = r.url || r.link || url;
+          out.raw.push({ source: src.name, title: title, description: desc, url: u });
+        }
+      } else if (data && typeof data === "object" && data.url) {
+        out.raw.push({ source: src.name, title: data.title || "ملف تعريفي", description: data.url, url: data.url });
+      } else if (data && typeof data === "string" && data.length > 200) {
+        out.raw.push({ source: src.name, title: "نتائج لـ " + src.name, description: maxChars(data, 200), url: url });
+      } else {
+        out.raw.push({ source: src.name, title: "محاولة بحث في " + src.name, description: "لا يوجد بيانات منظمة في الرد", url: url });
+      }
+    }
+
+    // الترتيب: نتائج بالعنوان/الوصف أولاً ثم القوائم
+    out.sources = out.raw.filter(x => x.title && x.title.length).map((x, i) => ({
+      id: i,
+      source: x.source,
+      title: x.title,
+      description: x.description,
+      url: x.url
+    }));
+
+    out.summary = {
+      query: q,
+      totalHits: out.sources.length,
+      sources: [...new Set(out.sources.map(s => s.source))]
+    };
+
+    return new Response(JSON.stringify(out, null, 2), {
+      headers: { "content-type": "application/json", "cache-control": "no-store" }
+    });
+  }
+
+  if (p === "/api/hunt" && req.method === "POST") {
+    try { return await handleOSINT(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
+
   // أصول ثابتة
   if (env && env.ASSETS) return env.ASSETS.fetch(req);
   return new Response("Not found", { status: 404 });

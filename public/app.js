@@ -1531,6 +1531,7 @@
       research: "اكتب سؤالاً للبحث العميق مع المصادر…",
       site: "ألصق رابط موقع لتحليله…",
       img: "اوصف الصورة التي تريدها بالتفصيل…",
+      osint: "أدخل مصطلح بحث (وجه، شخص، رحلة طيران) للبحث في المصادر المفتوحة…",
       video: "اكتب موضوع الفيديو ثم اضغط إرسال لفتح الاستوديو…",
       handle: "ألصق نصاً أو رابطاً لاستخدام الأدوات…"
     };
@@ -1540,12 +1541,49 @@
       site: "ألصق رابط موقع…",
       img: "اوصف الصورة…",
       video: "موضوع الفيديو…",
-      handle: "ألصق نصاً أو رابطاً…"
+      handle: "ألصق نصاً أو رابطاً…",
+      osint: "بحث مصادر مفتوحة…"
     };
     const narrow = window.matchMedia && window.matchMedia("(max-width: 560px)").matches;
     if (input) input.placeholder = (narrow ? shortHints[mode] : hints[mode]) || hints.chat;
     if (mode === "handle") runTools();
+    if (mode === "osint") runOSINT(input ? input.value.trim() : "");
     if (mode === "video" && CB.studio) CB.studio.open(input ? input.value.trim() : "");
+  }
+
+  async function runOSINT(q) {
+    if (!q) { toast("أدخل مصطلح بحث فعّال"); return; }
+    setMode("osint");
+    toast("🌐 جارٍ البحث في المصادر المفتوحة…");
+    const out = await CB.api("/api/hunt", { query: q });
+    if (!out || out.error) { toast("فشل البحث: " + (out && out.error ? String(out.error) : "خطأ غير معروف")); return; }
+    renderOSINT(out);
+  }
+
+  function renderOSINT(res) {
+    const box = $("#chat");
+    if (!box) return;
+    box.innerHTML = "";
+    const h = document.createElement("div");
+    h.className = "h";
+    h.innerHTML = "<dt>النتيجة</dt><dd>" + esc(JSON.stringify(res.summary || "", null, 0).replace(/\n/g, "<br>")) + "</dd>";
+    box.appendChild(h);
+    if (!res.sources.length) {
+      const e = document.createElement("div");
+      e.className = "e";
+      e.innerHTML = "<p>لم يُعثر على بيانات منظمة في المصادر المفتوحة لهذا المصطلح.</p>";
+      box.appendChild(e);
+      return;
+    }
+    res.sources.forEach((s, i) => {
+      const d = document.createElement("div");
+      d.className = "d";
+      const url = s.url || "";
+      d.innerHTML = "<b><a href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(s.title || s.source || "مصدر غير معرّف") + "</b> <span class=\"src\">" + esc(s.source || "") + "</span></dd>";
+      d.innerHTML += "<p>" + esc(s.description || "") + "</p>";
+      if (url) d.innerHTML += "<a class=\"mini-btn\" href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">فتح الملف</a>";
+      box.appendChild(d);
+    });
   }
 
   // عند انتهاء الجلسة (بدء جلسة جديدة) تعود الأدوات إلى حالتها الافتراضية
