@@ -10,6 +10,8 @@ binding = "ASSETS"
 # Build command: خالي — الملفات الثابتة فقط
 # Output directory: public
 # Environments: اضف متغيراتك من Settings → Environment variables
+# اسرار: RESPAN_API_KEY (اختياري، يفعّل بوابة Respan) عبر `npx wrangler secret put RESPAN_API_KEY`
+# أو Settings → Environment variables / Secrets، وليس داخل wrangler.toml
 # Domains: أضف subdomain أو مخصص في DevOps → Pages
 # الوظائف: worker.js يعالج /api/* تلقائياً و يزود /static
 #

@@ -1,0 +1,207 @@
+// ============================================================
+// CHIBANI AI — Worker بدون أي مفاتيح API
+// يعتمد فقط على مزوّدين مجانيين يعملون بدون حساب:
+//  1) Pollinations  (GPT-OSS-20B: تفكير + أدوات)
+//  2) LLM7.io       (MiniMax-M2.7، Codestral)
+//  3) Kilo Gateway  (kilo-auto/free، Nemotron Ultra 550B، VL للرؤية)
+//  4) OVH AI        (gpt-oss-120b، Llama-3.3-70B، Qwen2.5-VL للصور، Whisper)
+// القراءة والبحث: r.jina.ai + DuckDuckGo Lite (مجاني بدون مفتاح)
+// ============================================================
+
+const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36" };
+const maxChars = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(0, n) : s; };
+
+const PROVIDERS = [
+  {
+    id: "pollinations",
+    label: "Pollinations",
+    url: "https://text.pollinations.ai/openai",
+    headers: {},
+    entryModels: [
+      { id: "openai-fast", name: "GPT-OSS 20B (تفكير)", interval: 31000, reasoning: true, vision: false, tools: true }
+    ]
+  },
+  {
+    id: "llm7",
+    label: "LLM7",
+    url: "https://api.llm7.io/v1/chat/completions",
+    headers: { authorization: "Bearer unused" },
+    entryModels: [
+      { id: "minimax-m2.7", name: "MiniMax M2.7", interval: 14000, reasoning: true, vision: false, tools: false },
+      { id: "codestral-latest", name: "Codestral (برمجة)", interval: 14000, reasoning: false, vision: false, tools: false }
+    ]
+  },
+  {
+    id: "kilo",
+    label: "Kilo Gateway",
+    url: "https://ai-gateway.kilo.ai/api/v1/chat/completions",
+    headers: {},
+    entryModels: [
+      { id: "kilo-auto/free", name: "Kilo Auto (حر)", interval: 2500, reasoning: true, vision: false, tools: true },
+      { id: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron Ultra 550B (ضخم)", interval: 2500, reasoning: true, vision: false, tools: false },
+      { id: "cohere/north-mini-code:free", name: "North Code (برمجة)", interval: 2500, reasoning: false, vision: false, tools: false },
+      { id: "nvidia/nemotron-3.5-super-vl:free", name: "Nemotron VL (رؤية)", interval: 2500, reasoning: true, vision: true, tools: false }
+    ]
+  },
+  {
+    id: "ovh",
+    label: "OVH AI",
+    url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions",
+    headers: {},
+    entryModels: [
+      { id: "gpt-oss-120b", name: "GPT-OSS 120B (ضخم)", interval: 31000, reasoning: true, vision: false, tools: false },
+      { id: "Qwen3.5-397B-A17B", name: "Qwen3.5 397B (ضخم)", interval: 31000, reasoning: false, vision: false, tools: false },
+      { id: "Meta-Llama-3_3-70B-Instruct", name: "Llama 3.3 70B", interval: 31000, reasoning: false, vision: false, tools: false },
+      { id: "Mistral-Small-3.2-24B-Instruct-2506", name: "Mistral Small 3.2", interval: 31000, reasoning: false, vision: false, tools: false },
+      { id: "Qwen2.5-VL-72B-Instruct", name: "Qwen2.5 VL 72B (رؤية)", interval: 31000, reasoning: false, vision: true, tools: false }
+    ]
+  }
+];
+
+// ترتيب "تلقائي": نوزّع بين المزوّدين للاستفادة من أكبر عدد من الحصص
+const AUTO_ORDER = [
+  "kilo:kilo-auto/free",
+  "ovh:gpt-oss-120b",
+  "llm7:minimax-m2.7",
+  "pollinations:openai-fast",
+  "kilo:nvidia/nemotron-3-ultra-550b-a55b:free",
+  "ovh:Meta-Llama-3_3-70B-Instruct",
+  "llm7:codestral-latest",
+  "ovh:Mistral-Small-3.2-24B-Instruct-2506",
+  "kilo:cohere/north-mini-code:free",
+  "ovh:Qwen3.5-397B-A17B"
+];
+
+const state = {
+  cooldown: new Map(), // "provider:model" -> epochMs حتى
+  hourly: new Map(),   // "kilo" -> أوقات الاستخدام في الساعة الماضية
+  rotate: 0
+};
+
+function key(p, m) { return p + ":" + m; }
+function coolUntil(p, m) { return state.cooldown.get(key(p, m)) || 0; }
+function setCooldown(p, m, ms) {
+  const safe = (ms > 0 && ms < 180000) ? ms : 35000;
+  state.cooldown.set(key(p, m), Date.now() + safe);
+}
+function nowBusy(p, m) { return coolUntil(p, m) > Date.now(); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function kiloHourlyBlocked() {
+  const arr = (state.hourly.get("kilo") || []).filter(t => Date.now() - t < 3600000);
+  state.hourly.set("kilo", arr);
+  return arr.length >= 165;
+}
+
+// كل التركيبات الممكنة provider+model
+function allEntries() {
+  const out = [];
+  for (const pr of PROVIDERS) for (const em of pr.entryModels) out.push({ provider: pr, model: em });
+  return out;
+}
+
+// بناء قائمة المزوّدين المرشحين لطلب واحد
+function buildChain(requested) {
+  const all = allEntries();
+  let entries;
+  if (requested && requested !== "auto") {
+    const sep = requested.indexOf("::");
+    const pid = requested.slice(0, sep), mid = requested.slice(sep + 2);
+    entries = all.filter(e => e.provider.id === pid && e.model.id === mid);
+    if (entries.length) return entries;
+    return entriesAfter(all);
+  }
+  return entriesAfter(all);
+}
+
+function entriesAfter(all) {
+  const rot = state.rotate++ % AUTO_ORDER.length;
+  const order = AUTO_ORDER.slice(rot).concat(AUTO_ORDER.slice(0, rot));
+  const list = [];
+  for (const k of order) {
+    const sep = k.indexOf(":");
+    const pid = k.slice(0, sep), mid = k.slice(sep + 1);
+    const e = all.find(e => e.provider.id === pid && e.model.id === mid);
+    if (e && !list.includes(e)) list.push(e);
+  }
+  return list.filter(e => !(e.provider.id === "kilo" && kiloHourlyBlocked()));
+}
+
+function sseFrame(obj) { return "data: " + JSON.stringify(obj) + "\n\n"; }
+
+function upstreamFrames(obj) {
+  const out = [];
+  const ch = obj && obj.choices && obj.choices[0];
+  if (!ch) return out;
+  const delta = ch.delta || {};
+  const msg = (ch.message && typeof ch.message === "object") ? ch.message : {};
+  const reasoning = delta.reasoning || delta.reasoning_content || msg.reasoning || msg.reasoning_content;
+  const content = (delta.content != null) ? delta.content : msg.content;
+  if (typeof reasoning === "string" && reasoning.length) out.push({ type: "reason", text: reasoning });
+  if (typeof content === "string" && content.length) out.push({ type: "delta", text: content });
+  if (ch.finish_reason) out.push({ type: "finish", finish: ch.finish_reason });
+  return out;
+}
+
+// ---------- نقاط الوصول ----------
+async function handle(req, env) {
+  const url = new URL(req.url);
+  const p = url.pathname;
+
+  if (p === "/api/health") {
+    const items = [];
+    for (const pr of PROVIDERS) {
+      for (const em of pr.entryModels) {
+        const until = coolUntil(pr.id, em.id);
+        items.push({
+          id: pr.id + "::" + em.id,
+          label: pr.label + " · " + em.name,
+          status: until > Date.now() ? "cooling" : "ready",
+          coolFor: Math.max(0, Math.round((until - Date.now()) / 1000))
+        });
+      }
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      providers: items,
+      kiloHourlyUsed: (state.hourly.get("kilo") || []).length
+    }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  }
+
+  if (p === "/api/models") {
+    const out = [{ id: "auto", name: "تلقائي (توزيع ذكي بين كل المزوّدين)" }];
+    for (const pr of PROVIDERS) for (const em of pr.entryModels) {
+      out.push({
+        id: pr.id + "::" + em.id,
+        name: em.name + " — " + pr.label,
+        reasoning: em.reasoning,
+        vision: em.vision
+      });
+    }
+    return new Response(JSON.stringify({ models: out }), { headers: { "content-type": "application/json" } });
+  }
+
+  if (p === "/api/chat" && req.method === "POST") {
+    try { return await handleConnect(req); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
+
+  if (p === "/api/search") return handleSearch(url.searchParams.get("q") || "");
+  if (p === "/api/tts") return handleTTS(url.searchParams.get("text") || "", url.searchParams.get("lang") || "ar");
+  if (p === "/api/image") return handleImage(url);
+
+  if (p === "/api/connect") {
+    if (req.method !== "POST") return jsonError(405, "استخدم POST");
+    try { return await handleConnect(req); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
+
+  if (p === "/api/audio" && req.method === "POST") {
+    try { return await handleAudio(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
+  if (p === "/api/hunt" && req.method === "POST") {
+    try { return await handleOSINT(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }
+
+  // أصول ثابتة
+  if (env && env.ASSETS) return env.ASSETS.fetch(req);
+  return new Response("Not found", { status: 404 });
+}

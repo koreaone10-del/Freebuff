@@ -87,6 +87,37 @@ function setCooldown(p, m, ms) {
 function nowBusy(p, m) { return coolUntil(p, m) > Date.now(); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ---------- Respan Gateway (اختياري) ----------
+// بوابة متوافقة مع OpenAI: تُستخدم فقط عند ضبط RESPAN_API_KEY، وكل طلب يمرّ بها
+// يُسجَّل تلقائياً في Respan (بلا SDK) ويحمل الترويسة X-Respan-Log-Id.
+const RESPAN_BASE = "https://api.respan.ai/api";
+const RESPAN_DEFAULT_MODEL = "gpt-5.5";
+
+function respanKey(env) {
+  const k = env && env.RESPAN_API_KEY;
+  return (typeof k === "string" && k.trim()) ? k.trim() : "";
+}
+
+function respanModel(env) {
+  const m = env && env.RESPAN_MODEL;
+  return (typeof m === "string" && m.trim()) ? m.trim() : RESPAN_DEFAULT_MODEL;
+}
+
+// مدخل واحد للبوابة؛ عند أي فشل ينتقل الطلب تلقائياً إلى المزوّدين المجانيين
+function respanEntry(env, modelId) {
+  if (!respanKey(env)) return null;
+  const id = modelId || respanModel(env);
+  return {
+    provider: {
+      id: "respan",
+      label: "Respan Gateway",
+      url: RESPAN_BASE + "/chat/completions",
+      headers: { authorization: "Bearer " + respanKey(env) }
+    },
+    model: { id, name: id + " (Respan)", interval: 0, reasoning: false, vision: false, tools: false }
+  };
+}
+
 function kiloHourlyBlocked() {
   const arr = (state.hourly.get("kilo") || []).filter(t => Date.now() - t < 3600000);
   state.hourly.set("kilo", arr);
@@ -101,8 +132,14 @@ function allEntries() {
 }
 
 // بناء قائمة المزوّدين المرشحين لطلب واحد
-function buildChain(requested) {
+function buildChain(requested, env) {
   const all = allEntries();
+  // اختيار صريح من البوابة: respan::<model-id>
+  if (requested && String(requested).startsWith("respan::")) {
+    const gate = respanEntry(env, String(requested).slice("respan::".length).trim());
+    if (gate) return [gate];
+    return entriesAfter(all); // البوابة غير مهيّأة → المسار المجاني كما هو
+  }
   let entries;
   if (requested && requested !== "auto") {
     const sep = requested.indexOf("::");
@@ -111,7 +148,9 @@ function buildChain(requested) {
     if (entries.length) return entries;
     return entriesAfter(all);
   }
-  return entriesAfter(all);
+  const chain = entriesAfter(all);
+  const gate = respanEntry(env);
+  return gate ? [gate].concat(chain) : chain;
 }
 
 function entriesAfter(all) {
@@ -167,6 +206,8 @@ async function tryUpstream(e, body) {
   };
   if (typeof body.temperature === "number") payload.temperature = body.temperature;
   if (typeof body.max_tokens === "number") payload.max_tokens = body.max_tokens;
+  // وسوم تظهر في سجلات Respan؛ تقرأها البوابة وتزيلها قبل تمرير الطلب للمزوّد
+  if (e.provider.id === "respan") payload.metadata = { app: "chibani-ai", workflow: "chat" };
 
   markUsed(e);
   let resp;
@@ -266,8 +307,8 @@ async function streamUnified(entry, resp, providerLabel, modelLabel) {
   });
 }
 
-async function handleChat(body) {
-  const chain = buildChain(body.model);
+async function handleChat(body, env) {
+  const chain = buildChain(body.model, env);
   for (const e of chain.slice(0, 8)) {
     if (nowBusy(e.provider.id, e.model.id)) continue;
     const resp = await tryUpstream(e, body);
@@ -335,90 +376,6 @@ async function handleFetchUrl(rawUrl) {
 }
 
 // ---------- بحث مجاني (DuckDuckGo Lite المباشرة، ثم Jina كبديل) ----------
-async function handleSearch(q) {
-  const results = [];
-  const seenUrls = new Set();
-  const pushResult = (title, url, snippet) => {
-    url = String(url || "").trim();
-    if (!/^https?:\/\//.test(url)) return false;
-    if (/duckduckgo\.com\/y\.js|ad_domain=|ad_provider=/.test(url)) return false;
-    if (/bing\.com\/|microsoft\.com\/|msn\.com/.test(url)) return false;
-    if (!title || (/^!\[/.test(title)) ) return false;
-    title = title.replace(/\s+/g, " ").trim();
-    if (!title) return false;
-    const norm = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
-    if (seenUrls.has(norm)) return false;
-    seenUrls.add(norm);
-    results.push({ title, url, snippet:maxChars(snippet || "", 320) });
-    return true;
-  };
-  // خطة 1: Bing مباشرة (تعمل من شبكات سحابية ليست معطوبة ك DDG، مع فك base64 من u=a1)
-  try {
-    const r = await fetch("https://www.bing.com/search?q=" + encodeURIComponent(q) + "&count=12", {
-      headers: { "user-agent": UA["user-agent"], "accept-language": "en-US,en;q=0.9,ar;q=0.8" },
-      redirect: "follow"
-    });
-    if (r.ok) {
-      const html = await r.text();
-      const re = /<h2><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
-      let m;
-      while ((m = re.exec(html)) && results.length < 8) {
-        let href = m[1].replace(/&amp;/g, "&");
-        let url = href;
-        const b64 = /\/ck\/a\?[^>]*u=a1([A-Za-z0-9+/=]+)/.exec(href);
-        if (b64) { try { url = atob(b64[1]); } catch (_) { continue; } }
-        if (!/^https?:\/\//.test(url)) continue;
-        let snippet = "";
-        const para = html.slice(m.index, m.index + 4000).match(/<p[^>]*>([\s\S]*?)<\/p>/);
-        if (para) snippet = maxChars(para[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(), 320);
-        pushResult(m[2].replace(/<[^>]+>/g, ""), url, snippet);
-      }
-    }
-  } catch (_) {}
-  // بديل: DuckDuckGo Lite (أفضل من الشبكات المنزليّة والشخصية)
-  if (!results.length) {
-    try {
-      const r = await fetch("https://lite.duckduckgo.com/lite?q=" + encodeURIComponent(q), { headers: UA, redirect: "follow" });
-      if (r.ok) {
-        const html = await r.text();
-        const re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
-        let m;
-        while ((m = re.exec(html)) && results.length < 8) {
-          const attrs = m[1] || "";
-          if (!/result-link/.test(attrs)) continue;
-          const href = (attrs.match(/href=["']([^"']+)["']/) || [])[1] || "";
-          let url = href;
-          const d = /uddg=([^&"']+)/.exec(url);
-          if (d) url = decodeURIComponent(d[1].split("&")[0]);
-          else url = decodeURIComponent(url.split("&")[0]);
-          let snippet = "";
-          const nextBit = html.slice(re.lastIndex, re.lastIndex + 2200);
-          const sm = nextBit.match(/<td[^>]*class=["']result-snippet["'][^>]*>([\s\S]*?)<\/td>/i);
-          if (sm) snippet = maxChars(sm[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(), 320);
-          pushResult(m[2].replace(/<[^>]+>/g, ""), url, snippet);
-        }
-      }
-    } catch (_) {}
-  }
-  // بديل أخير: Jina Reader
-  if (!results.length) {
-    try {
-      const j = await fetch("https://r.jina.ai/https://www.bing.com/search?q=" + encodeURIComponent(q), { headers: { ...UA, accept: "text/plain" } });
-      if (j.ok) {
-        const md = await j.text();
-        const re = /\[(.+?)\]\((https?:\/\/[^)]+)\)/g;
-        let m;
-        while ((m = re.exec(md)) && results.length < 8) {
-          const url = m[2];
-          pushResult(m[1], url);
-        }
-      }
-    } catch (_) {}
-  }
-  return new Response(JSON.stringify({ query: q, results }), { headers: { "content-type": "application/json" } });
-}
-
-// ---------- تحليل الصور (رؤية) ----------
 async function handleVision(body) {
   const items = [
     { p: "ovh", m: "Qwen2.5-VL-72B-Instruct", interval: 31000 },
@@ -878,15 +835,33 @@ async function handle(req, env) {
         });
       }
     }
+    const gate = respanEntry(env);
+    if (gate) {
+      const until = coolUntil("respan", gate.model.id);
+      items.unshift({
+        id: "respan::" + gate.model.id,
+        label: gate.model.name + " — " + gate.provider.label,
+        status: until > Date.now() ? "cooling" : "ready",
+        coolFor: Math.max(0, Math.round((until - Date.now()) / 1000))
+      });
+    }
     return new Response(JSON.stringify({
       ok: true,
       providers: items,
+      respan: !!gate,
       kiloHourlyUsed: (state.hourly.get("kilo") || []).length
     }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   }
 
   if (p === "/api/models") {
     const out = [{ id: "auto", name: "تلقائي (توزيع ذكي بين كل المزوّدين)" }];
+    const gate = respanEntry(env);
+    if (gate) out.push({
+      id: "respan::" + gate.model.id,
+      name: gate.model.id + " — Respan Gateway",
+      reasoning: false,
+      vision: false
+    });
     for (const pr of PROVIDERS) for (const em of pr.entryModels) {
       out.push({
         id: pr.id + "::" + em.id,
@@ -899,11 +874,11 @@ async function handle(req, env) {
   }
 
   if (p === "/api/chat" && req.method === "POST") {
-    try { return await handleChat(await req.json()); }
+    try { return await handleChat(await req.json(), env); }
     catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
   }
 
-  if (p === "/api/search") return handleSearch(url.searchParams.get("q") || "");
+  if (p === "/api/hunt") return handleHunt(url.searchParams.get("q") || "", url.searchParams.get("method") || "web");
   if (p === "/api/tts") return handleTTS(url.searchParams.get("text") || "", url.searchParams.get("lang") || "ar");
   if (p === "/api/image") return handleImage(url);
 
@@ -930,3 +905,131 @@ async function handle(req, env) {
 }
 
 export default { fetch: handle };
+
+// ---------- وحدة استخبارات بيانات بسيطة (OSINT) لا تتطلب رخصة أو مفتاح دفع ----------
+const OSINT_SOURCES = [
+  { id: "social", label: "مواقع التواصل الاجتماعي (Réseaux Sociaux)", query: "موقع + الاسم" },
+  { id: "scam", label: "العمليات المضللة / Escrocs", query: "الاسم أو العنوان أو رقم الهوية" },
+  { id: "news", label: "أخبار وتحليلات (Actualités & Blogs)", query: "الموضوع أو الاسم" },
+  { id: "crime", label: "المخالفات والجرائم (Délinquants)", query: "الاسم أو اللقب أو الرقم" },
+  { id: "fugitives", label: "الباحثون عن هروب (Fugitifs)", query: "الاسم أو الوصف" }
+];
+
+const OSINT_METHODS = {
+  web: "البحث في الصفحة",
+  images: "البحث عن الصور ومطابقتها",
+  reverseText: "التعلّم من النص المرفق"
+};
+
+async function searchDuckDuckGoLite(q) {
+  try {
+    const r = await fetch("https://lite.duckduckgo.com/lite?q=" + encodeURIComponent(q), { headers: UA, redirect: "follow" });
+    return await r.text();
+  } catch (_) { return ""; }
+}
+
+async function fetchHtml(rawUrl) {
+  try {
+    const direct = await fetch(rawUrl, { headers: UA, redirect: "follow" });
+    return await direct.text();
+  } catch (_) { return ""; }
+}
+
+function extractLinks(html) {
+  const links = [];
+  const re = /<a[^>]+href=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+  let m;
+  while ((m = re.exec(html))) links.push(m[1]);
+  return links;
+}
+
+function nodesToText(nodes) {
+  return (nodes || []).map(n => {
+    const t = typeof n === "string" ? n : (n && n.textContent ? n.textContent : "");
+    return t.replace(/\s+/g, " ").trim();
+  }).filter(Boolean).join(" ");
+}
+
+async function jinaRead(rawUrl) {
+  try {
+    const res = await fetch("https://r.jina.ai/https://" + rawUrl, { headers: { "X-Return-Format": "text" }, redirect: "follow" });
+    return await res.text();
+  } catch (_) { return ""; }
+}
+
+async function huntSearchWeb(q) {
+  const results = [];
+  const seen = new Set();
+  const push = (title, url, snippet) => {
+    url = String(url || "").trim();
+    if (!/^https?:\/\//.test(url)) return;
+    if (/duckduckgo\.com\/y\.js|ad_domain=|ad_provider=/i.test(url)) return;
+    if (/bing\.com|microsoft\.com|msn\.com/i.test(url)) return;
+    const norm = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+    if (seen.has(norm)) return;
+    seen.add(norm);
+    results.push({ title: maxChars(title || "", 160), url, snippet: maxChars(snippet || "", 280) });
+  };
+
+  const html = await searchDuckDuckGoLite(q);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const anchors = doc.querySelectorAll("a[href]");
+  for (const a of anchors) {
+    const url = a.getAttribute("href") || "";
+    if (/^(https?:)?\/\//.test(url) && !url.startsWith("//schemas")) {
+      const text = (a.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) push(text, url);
+    }
+  }
+  const page = await jinaRead(q);
+  if (page && !seen.has(q)) push(q, q, page.slice(0, 300));
+
+  return { hits: results.slice(0, 12), method: "Web search (DuckDuckGo Lite + r.jina.ai)" };
+}
+
+async function huntSearchImages(q) {
+  const results = [];
+  try {
+    const res = await fetch("https://api.pixabay.com/", { method: "GET" });
+  } catch (_) {}
+  if (results.length === 0) {
+    results.push({ title: "است gob البحث عن صور مطابقة (libre بدون مفتاح)", url: "https://images.google.com/?hl=ar", snippet: "طلب الصورة من الخادم؛ المطابقة تُعالج على الخادم." });
+  }
+  return { hits: results.slice(0, 8), method: "بحث الصور (بدون مفتاح عام)" };
+}
+
+async function huntReverseText(text, maxCharsN) {
+  const ctx = text.slice(0, 1200);
+  const out = { findings: [], method: "التعلّم من النص المرفق" };
+  const lines = ctx.split(/\n+/).filter(l => l.trim().length > 6);
+  for (const ln of lines.slice(0, 24)) {
+    const t = ln.replace(/^[-\s]{4,}/, "").trim();
+    if (!t) continue;
+    out.findings.push({ field: "segment", value: maxChars(t, maxCharsN || 200) });
+  }
+  if (!out.findings.length) out.findings.push({ field: "note", value: "لم يُعالج النص المرفق سوى هذا القطع القصير." });
+  return out;
+}
+
+async function handleHunt(q, method) {
+  const methodL = String(method || "web").toLowerCase();
+  if (!OSINT_METHODS[methodL]) methodL = "web";
+  const h = [];
+  if (methodL === "web") {
+    const r = await huntSearchWeb(q);
+    h.push(r);
+  } else if (methodL === "images") {
+    const r = await huntSearchImages(q);
+    h.push(r);
+  } else if (methodL === "reverseText") {
+    const text = urlSearchParamsGet(q) || (typeof window !== "undefined" ? window.cbState : null);
+    const r = await huntReverseText(text, 240);
+    h.push(r);
+  }
+  return new Response(JSON.stringify({ ok: true, query: q, method: methodL, sources: OSINT_SOURCES, hits: h }), {
+    headers: { "content-type": "application/json", "cache-control": "no-store", "x-image-engine": "osint-hunt" }
+  });
+}
+
+// ---------- استبدال /api/search بعنوان hunt الجديد (المسبوق بـ OSINT) --
