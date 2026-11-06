@@ -1071,6 +1071,30 @@ async function jinaRead(rawUrl) {
   } catch (_) { return ""; }
 }
 
+// --- DOMParser (linkedom): استخدامه في worker/server دون المتصفح ---
+let _DOMParserImpl = null;
+try {
+  const { DOMParser: LDDOMParser } = require('linkedom');
+  _DOMParserImpl = LDDOMParser;
+} catch (_) {
+  // Fallback خفيف إذا تعذّر تثبيت linkedom
+  class DOMParserVirtual {
+    parseFromString(html) {
+      return {
+        querySelectorAll: (sel) => {
+          const anchors = [];
+          const re = /<a[^>]+href=["'](https?:\/\/[^"']+)["'][^>]*>([^<]*)<\/a>/gi;
+          let m;
+          while ((m = re.exec(html))) anchors.push({ getAttribute: (k) => m[1], textContent: m[2] });
+          return anchors;
+        }
+      };
+    }
+  }
+  _DOMParserImpl = DOMParserVirtual;
+}
+globalThis.DOMParser = _DOMParserImpl;
+
 async function huntSearchWeb(q) {
   const results = [];
   const seen = new Set();
@@ -1127,7 +1151,7 @@ async function huntReverseText(text, maxCharsN) {
 }
 
 async function handleHunt(q, method) {
-  const methodL = String(method || "web").toLowerCase();
+  let methodL = String(method || "web").toLowerCase();
   if (!OSINT_METHODS[methodL]) methodL = "web";
   const h = [];
   if (methodL === "web") {
