@@ -279,14 +279,14 @@ async function streamUnified(entry, resp, providerLabel, modelLabel) {
       } else {
         const text = await resp.text();
         try {
-          const j = JSON.parse(text);
+          const j = JSON.parse(text || "");
           if (j.error) {
             await writer.write(enc.encode(sseFrame({ type: "error", text: j.error.message || "رد من المزوّد" })));
           } else {
             for (const f of upstreamFrames(j)) await writer.write(enc.encode(sseFrame(f)));
           }
         } catch (_) {
-          await writer.write(enc.encode(sseFrame({ type: "delta", text })));
+          await writer.write(enc.encode(sseFrame({ type: "delta", text: text || "" })));
         }
       }
       await writer.write(enc.encode(sseFrame({ type: "done" })));
@@ -308,26 +308,35 @@ async function streamUnified(entry, resp, providerLabel, modelLabel) {
 }
 
 async function handleChat(body, env) {
-  const chain = buildChain(body.model, env);
+  const model = body && typeof body.model === "string" ? body.model : '';
+  const chain = buildChain(model, env);
   for (const e of chain.slice(0, 8)) {
     if (nowBusy(e.provider.id, e.model.id)) continue;
     const resp = await tryUpstream(e, body);
     if (!resp) continue;
 
+    // اقرأ المحتوى مرة واحدة فقط، واحفظه
+    let text = '';
+    try {
+      text = await resp.text();
+    } catch (_) {
+      text = '';
+    }
+    if (!text) continue; // نص خالي، ننتقل للمزود التالي
+
     if (body.stream === false) {
-      const text = await resp.text();
+      // لا يرتفع SyntaxError إذا كان النص خالياً
       try {
-        const j = JSON.parse(text);
+        const j = JSON.parse(text || "");
         if (j.error) continue;
         const msg = (j.choices && j.choices[0].message) || {};
-        return new Response(JSON.stringify({
-          content: msg.content || "",
-          reasoning: msg.reasoning || msg.reasoning_content || "",
-          provider: e.provider.label,
-          model: e.model.name
-        }), { headers: { "content-type": "application/json" } });
+        return new Response(
+          JSON.stringify({ content: msg.content || "", reasoning: msg.reasoning || msg.reasoning_content || "", provider: e.provider.label, model: e.model.name }),
+          { headers: { "content-type": "application/json" } }
+        );
       } catch (_) {
-        return new Response(JSON.stringify({ content: text, provider: e.provider.label, model: e.model.name }), { headers: { "content-type": "application/json" } });
+        // إذا لم يكن رد المزوّد JSON صالح، نرجعه كنص بسيط (لا طريقة لرفع SyntaxError هنا)
+        return new Response(JSON.stringify({ content: text || "", provider: e.provider.label, model: e.model.name }), { headers: { "content-type": "application/json" } });
       }
     }
     return streamUnified(e, resp, e.provider.label, e.model.name);
@@ -871,11 +880,16 @@ async function handle(req, env) {
       });
     }
     return new Response(JSON.stringify({ models: out }), { headers: { "content-type": "application/json" } });
-  }
-
-  if (p === "/api/chat" && req.method === "POST") {
-    try { return await handleChat(await req.json(), env); }
-    catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
+  }  if (p === "/api/chat" && req.method === "POST") {
+    try {
+      const body = await req.json();
+      if (!body || typeof body !== "object") {
+        return jsonError(400, "بيانات غير صالحة: يُرجى إرسال JSON صحيح مع حقل messages");
+      }
+      return await handleChat(body, env);
+    } catch (e) {
+      return jsonError(500, "خطأ داخلي: " + String(e));
+    }
   }
 
   if (p === "/api/hunt") return handleHunt(url.searchParams.get("q") || "", url.searchParams.get("method") || "web");

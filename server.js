@@ -60,6 +60,7 @@ const server = createServer(async (req, res) => {
     }
 
     // 2) الطلبات API → Worker (cloudflare)
+    // نمرر req كامل (كـ Request) لضمان أن body متاح في worker (ويحافظ على env في Render).
     const workerReq = new Request(url, req);
     const workerRes = await workerModule.default.fetch(workerReq);
 
@@ -77,7 +78,7 @@ const server = createServer(async (req, res) => {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        res.write(value);
+        if (value) res.write(value);
       }
     } else {
       res.end();
