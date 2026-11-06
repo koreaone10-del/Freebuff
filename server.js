@@ -1,4 +1,3 @@
-// CHIBANI AI — خادم Render بسيط يجمع بين static (public/) و Worker (worker.js)
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, dirname } from "node:path";
@@ -25,14 +24,10 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = url.pathname;
 
-    // 1) Assets ثابتة من public/
     if (STATIC_RE.test(pathname) || pathname === "/") {
-      let filePath;
-      if (pathname === "/") filePath = join(PUBLIC_DIR, "index.html");
-      else filePath = join(PUBLIC_DIR, pathname.slice(1));
-
+      let filePath = pathname === "/" ? join(PUBLIC_DIR, "index.html") : join(PUBLIC_DIR, pathname.slice(1));
       try {
-        const body = readFileSync(filePath);
+        const fileBody = readFileSync(filePath);
         const ext = filePath.split(".").pop() || "html";
         const mime =
           ext === "html" ? "text/html" :
@@ -46,35 +41,44 @@ const server = createServer(async (req, res) => {
           ext === "ico" ? "image/x-icon" :
           ext === "mp4" ? "video/mp4" :
           ext === "webm" ? "video/webm" : "application/octet-stream";
-
-        res.writeHead(200, {
-          "content-type": mime,
-          "cache-control": "no-cache",
-          "x-content-type-options": "nosniff"
-        });
-        return res.end(body);
+        res.writeHead(200, { "content-type": mime, "cache-control": "no-cache", "x-content-type-options": "nosniff" });
+        return res.end(fileBody);
       } catch {
         res.writeHead(404, { "content-type": "text/plain" });
         return res.end("Not found");
       }
     }
 
-    // 2) الطلبات API → Worker (cloudflare)
-    // نمرر req كامل (كـ Request) لضمان أن body متاح في worker (ويحافظ على env في Render).
-    const workerReq = new Request(url, req);
+    // API -> Worker (cloudflare)
+    let bodyText = null;
+    let parsed = null;
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      try {
+        const chunks = [];
+        for await (const ch of req) chunks.push(ch);
+        bodyText = Buffer.concat(chunks).toString("utf8");
+        parsed = JSON.parse(bodyText);
+        if (parsed && typeof parsed === "object") {
+          if (parsed.stream === undefined) parsed.stream = false;
+        }
+      } catch (_) { /* no JSON / no body */ }
+    }
+    const workerBody = JSON.stringify(parsed);
+    const workerReq = new Request(url, {
+      method: req.method,
+      headers: req.headers,
+      body: req.method === "GET" || req.method === "HEAD" ? null : workerBody
+    });
+
     const workerRes = await workerModule.default.fetch(workerReq);
 
-    const body = workerRes.body;
+    const outBody = workerRes.body;
     const ctype = workerRes.headers.get("content-type") || "text/plain";
     const headers = new Headers();
     workerRes.headers.forEach((v, k) => { headers.set(k, v); });
-    res.writeHead(workerRes.status, {
-      "content-type": ctype,
-      ...Object.fromEntries(headers.entries())
-    });
-
-    if (body) {
-      const reader = body.getReader();
+    res.writeHead(workerRes.status, { "content-type": ctype, ...Object.fromEntries(headers.entries()) });
+    if (outBody) {
+      const reader = outBody.getReader();
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -85,10 +89,7 @@ const server = createServer(async (req, res) => {
     }
   } catch (e) {
     console.error("[server] error:", e);
-    try {
-      res.writeHead(500, { "content-type": "text/plain" });
-      res.end("Internal Server Error");
-    } catch (_) {}
+    try { res.writeHead(500, { "content-type": "text/plain" }); res.end("Internal Server Error"); } catch (_) {}
   }
 });
 
