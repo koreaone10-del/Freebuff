@@ -4,6 +4,9 @@ services:
     runtime: node
     env: node
     buildCommand: npm install
-    startCommand: node public/worker.js
+    startCommand: node server.js
     healthCheckPath: /api/health
     region: oregon
+    envVars:
+      - key: NODE_ENV
+        value: production
