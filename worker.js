@@ -1201,7 +1201,9 @@ async function handleFlights() {
   if (!rows.length) {
     try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; } catch (_) { rows = []; }
   }
-  const aircraft = rows.map(flightRow).sort((a, b) => (a.toCapital || 0) - (b.toCapital || 0)).slice(0, 120);
+  // استبعاد المركبات الأرضية (برج المراقبة، سيارات المطار) — ليست رحلات جوية
+  const aircraft = rows.filter((a) => !a.ground).map(flightRow)
+    .sort((a, b) => (a.toCapital || 0) - (b.toCapital || 0)).slice(0, 120);
   const data = {
     ok: aircraft.length > 0,
     source: source || "لا مصدر متاح الآن",
