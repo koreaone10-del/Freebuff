@@ -1508,29 +1508,52 @@ async function huntSearchWeb(q) {
   const push = (title, url, snippet) => {
     url = String(url || "").trim();
     if (!/^https?:\/\//.test(url)) return;
-    if (/duckduckgo\.com\/y\.js|ad_domain=|ad_provider=/i.test(url)) return;
+    if (/duckduckgo\.com\/(y\.js|duckduckgo-help-pages)|ad_domain=|ad_provider=/i.test(url)) return;
     if (/bing\.com|microsoft\.com|msn\.com/i.test(url)) return;
+    if (/^https?:\/\/(www\.)?(duckduckgo\.com|google\.[a-z.]+)\/?$/i.test(url)) return;
     const norm = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
     if (seen.has(norm)) return;
     seen.add(norm);
     results.push({ title: maxChars(title || "", 160), url, snippet: maxChars(snippet || "", 280) });
   };
 
-  const html = await searchDuckDuckGoLite(q);
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const anchors = doc.querySelectorAll("a[href]");
-  for (const a of anchors) {
-    const url = a.getAttribute("href") || "";
-    if (/^(https?:)?\/\//.test(url) && !url.startsWith("//schemas")) {
-      const text = (a.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) push(text, url);
+  // 1) DuckDuckGo عبر قارئ jina: يعيد صفحة نتائج نظيفة حتى من شبكة Worker
+  try {
+    const md = await jinaRead("html.duckduckgo.com/html/?q=" + encodeURIComponent(q));
+    const re = /\[([^\]\n]{3,160})\]\((https?:\/\/[^)\s]+)\)/g;
+    let m;
+    while ((m = re.exec(md || ""))) push(m[1].replace(/\s+/g, " ").trim(), m[2], "");
+  } catch (_) {}
+
+  // 2) DuckDuckGo Lite مباشرة (يعمل من Node وبعض شبكات الحافة)
+  if (results.length < 4) {
+    const html = await searchDuckDuckGoLite(q);
+    if (html) {
+      try {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        for (const a of doc.querySelectorAll("a[href]")) {
+          const url = a.getAttribute("href") || "";
+          if (/^(https?:)?\/\//.test(url) && !url.startsWith("//schemas")) {
+            const text = (a.textContent || "").replace(/\s+/g, " ").trim();
+            if (text) push(text, url, "");
+          }
+        }
+      } catch (_) {}
     }
   }
-  const page = await jinaRead(q);
-  if (page && !seen.has(q)) push(q, q, page.slice(0, 300));
 
-  return { hits: results.slice(0, 12), method: "Web search (DuckDuckGo Lite + r.jina.ai)" };
+  // 3) ويكيبيديا: مصدر مضمون بلا مفتاح ولا حجب
+  if (results.length < 4) {
+    try {
+      const wr = await fetch("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=5&srsearch=" + encodeURIComponent(q), { headers: UA });
+      const wj = await wr.json();
+      for (const s of ((wj && wj.query && wj.query.search) || [])) {
+        push(s.title, "https://en.wikipedia.org/wiki/" + encodeURIComponent(String(s.title || "").replace(/ /g, "_")), stripTags(s.snippet || ""));
+      }
+    } catch (_) {}
+  }
+
+  return { hits: results.slice(0, 12), method: "DuckDuckGo (عبر jina) + Lite + ويكيبيديا" };
 }
 
 async function huntSearchImages(q) {
