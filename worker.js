@@ -1067,6 +1067,7 @@ async function handle(req, env) {
     });
   }
 
+  if (p === "/api/search") return await handleSearch(url);
   if (p === "/api/flights") return await handleFlights();
   if (p === "/api/repos") return await handleRepos(url);
   if (p === "/api/dojos") return await handleDojos(url);
@@ -1081,6 +1082,19 @@ async function handle(req, env) {
 }
 
 export default { fetch: handle };
+
+// بحث الويب الذي يستخدمه وضع «البحث العميق» في الواجهة
+async function handleSearch(url) {
+  const q = String(url.searchParams.get("q") || "").trim();
+  if (!q) return jsonError(400, "أدخل كلمة بحث");
+  let hits = [];
+  try { hits = (await huntSearchWeb(q)).hits || []; } catch (_) { hits = []; }
+  return new Response(JSON.stringify({
+    ok: true,
+    query: q,
+    results: hits.map((h) => ({ title: h.title, url: h.url, snippet: h.snippet }))
+  }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
 
 // ============================================================
 // طيران مباشر فوق الجزائر — ADS-B مفتوح بلا مفاتيح
