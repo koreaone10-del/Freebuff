@@ -1428,6 +1428,11 @@
       modebar.addEventListener("click", (e) => {
         const btn = e.target.closest(".mode-chip");
         if (!btn) return;
+        if (btn.dataset.mode === "hub") {
+          if (CB.hub) CB.hub.open("tools");
+          else toast("مركز الأدوات غير محمّل بعد");
+          return;
+        }
         setMode(btn.dataset.mode);
       });
     }
