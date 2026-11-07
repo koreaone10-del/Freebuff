@@ -315,7 +315,12 @@ async function handleChat(body, env) {
     const resp = await tryUpstream(e, body);
     if (!resp) continue;
 
-    // اقرأ المحتوى مرة واحدة فقط، واحفظه
+    // المسار المتدفق أولاً: لا نقرأ resp.body هنا أبداً وإلا يُقفل القارئ
+    if (body.stream !== false) {
+      return streamUnified(e, resp, e.provider.label, e.model.name);
+    }
+
+    // المسار غير المتدفق: اقرأ النص مرة واحدة فقط
     let text = '';
     try {
       text = await resp.text();
@@ -324,22 +329,18 @@ async function handleChat(body, env) {
     }
     if (!text) continue; // نص خالي، ننتقل للمزود التالي
 
-    if (body.stream === false) {
-      // لا يرتفع SyntaxError إذا كان النص خالياً
-      try {
-        const j = JSON.parse(text || "");
-        if (j.error) continue;
-        const msg = (j.choices && j.choices[0].message) || {};
-        return new Response(
-          JSON.stringify({ content: msg.content || "", reasoning: msg.reasoning || msg.reasoning_content || "", provider: e.provider.label, model: e.model.name }),
-          { headers: { "content-type": "application/json" } }
-        );
-      } catch (_) {
-        // إذا لم يكن رد المزوّد JSON صالح، نرجعه كنص بسيط (لا طريقة لرفع SyntaxError هنا)
-        return new Response(JSON.stringify({ content: text || "", provider: e.provider.label, model: e.model.name }), { headers: { "content-type": "application/json" } });
-      }
+    try {
+      const j = JSON.parse(text || "");
+      if (j.error) continue;
+      const msg = (j.choices && j.choices[0].message) || {};
+      return new Response(
+        JSON.stringify({ content: msg.content || "", reasoning: msg.reasoning || msg.reasoning_content || "", provider: e.provider.label, model: e.model.name }),
+        { headers: { "content-type": "application/json" } }
+      );
+    } catch (_) {
+      // إذا لم يكن رد المزوّد JSON صالح، نرجعه كنص بسيط
+      return new Response(JSON.stringify({ content: text || "", provider: e.provider.label, model: e.model.name }), { headers: { "content-type": "application/json" } });
     }
-    return streamUnified(e, resp, e.provider.label, e.model.name);
   }
   const tomorrow = Math.max(0, ...chain.map(e => coolUntil(e.provider.id, e.model.id))) - Date.now();
   const secs = Math.ceil(tomorrow / 1000);
