@@ -64,9 +64,16 @@ const server = createServer(async (req, res) => {
       } catch (_) { /* no JSON / no body */ }
     }
     const workerBody = JSON.stringify(parsed);
+    // نقل الترويسات مع تجاهل تلك التي يغيّرها إعادة التسلسل أو تحدّدها منصة Render
+    const safeHeaders = {};
+    for (const [k, v] of Object.entries(req.headers)) {
+      const key = k.toLowerCase();
+      if (key === "host" || key === "content-length" || key === "transfer-encoding" || key === "connection") continue;
+      if (typeof v === "string") safeHeaders[key] = v;
+    }
     const workerReq = new Request(url, {
       method: req.method,
-      headers: req.headers,
+      headers: safeHeaders,
       body: req.method === "GET" || req.method === "HEAD" ? null : workerBody
     });
 

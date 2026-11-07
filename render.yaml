@@ -1,8 +1,9 @@
 services:
-  - type: worker
-    name: freebuff
+  - type: web
+    name: chibani-ai
     runtime: node
     env: node
+    plan: free
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /api/health

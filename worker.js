@@ -892,7 +892,7 @@ async function handle(req, env) {
     }
   }
 
-  if (p === "/api/hunt") return handleHunt(url.searchParams.get("q") || "", url.searchParams.get("method") || "web");
+  if (p === "/api/hunt" && (req.method === "GET" || req.method === "HEAD")) return handleHunt(url.searchParams.get("q") || "", url.searchParams.get("method") || "web");
   if (p === "/api/tts") return handleTTS(url.searchParams.get("text") || "", url.searchParams.get("lang") || "ar");
   if (p === "/api/image") return handleImage(url);
 
@@ -1090,6 +1090,20 @@ async function jinaRead(rawUrl) {
   } catch (_) { return ""; }
 }
 
+// --- أوضاع وأدوات البحث (OSINT) — معرّفة على مستوى الوحدة ليراها كل المعالجات ---
+const OSINT_METHODS = {
+  web: "بحث ويب",
+  images: "بحث صور",
+  reversetext: "تحليل نص / استخراج"
+};
+
+const OSINT_HUNT_SOURCES = [
+  { id: "duckduckgo", name: "DuckDuckGo Lite", host: "https://lite.duckduckgo.com", label: "بحث ويب مجاني بدون مفتاح" },
+  { id: "jina", name: "r.jina.ai", host: "https://r.jina.ai", label: "قراءة صفحات الويب كنص" },
+  { id: "wikipedia", name: "Wikipedia", host: "https://en.wikipedia.org", label: "موسوعة حرة" },
+  { id: "google-images", name: "Google Images", host: "https://images.google.com", label: "بحث الصور بالرابط" }
+];
+
 // --- DOMParser (linkedom): استخدامه في worker/server دون المتصفح ---
 let _DOMParserImpl = null;
 try {
@@ -1100,11 +1114,14 @@ try {
   class DOMParserVirtual {
     parseFromString(html) {
       return {
-        querySelectorAll: (sel) => {
+        querySelectorAll: () => {
           const anchors = [];
           const re = /<a[^>]+href=["'](https?:\/\/[^"']+)["'][^>]*>([^<]*)<\/a>/gi;
           let m;
-          while ((m = re.exec(html))) anchors.push({ getAttribute: (k) => m[1], textContent: m[2] });
+          while ((m = re.exec(html))) {
+            const hit = m; // التقط النتيجة في ثابت قبل التكرار التالي
+            anchors.push({ getAttribute: () => hit[1], textContent: hit[2] });
+          }
           return anchors;
         }
       };
@@ -1112,7 +1129,34 @@ try {
   }
   _DOMParserImpl = DOMParserVirtual;
 }
-globalThis.DOMParser = _DOMParserImpl;
+try { globalThis.DOMParser = _DOMParserImpl; } catch (_) { /* بيئات تمنع الكتابة على globalThis */ }
+
+// بحث DuckDuckGo Lite المباشر (مجاني بدون مفتاح) — يعيد HTML أو نصاً فارغاً
+async function searchDuckDuckGoLite(q) {
+  const query = String(q || "").trim();
+  if (!query) return "";
+  const attempts = [
+    () => fetch("https://lite.duckduckgo.com/lite/", {
+      method: "POST",
+      headers: { ...UA, "content-type": "application/x-www-form-urlencoded", accept: "text/html,application/xhtml+xml" },
+      body: new URLSearchParams({ q: query, kl: "wt-wt" }).toString(),
+      redirect: "follow"
+    }),
+    () => fetch("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query), {
+      headers: { ...UA, accept: "text/html,application/xhtml+xml" },
+      redirect: "follow"
+    })
+  ];
+  for (const run of attempts) {
+    try {
+      const r = await run();
+      if (!r.ok) continue;
+      const html = await r.text();
+      if (html && html.length > 200) return html;
+    } catch (_) { /* جرّب المحاولة التالية */ }
+  }
+  return "";
+}
 
 async function huntSearchWeb(q) {
   const results = [];
@@ -1171,22 +1215,33 @@ async function huntReverseText(text, maxCharsN) {
 
 async function handleHunt(q, method) {
   let methodL = String(method || "web").toLowerCase();
-  if (!OSINT_METHODS[methodL]) methodL = "web";
-  const h = [];
-  if (methodL === "web") {
-    const r = await huntSearchWeb(q);
-    h.push(r);
-  } else if (methodL === "images") {
-    const r = await huntSearchImages(q);
-    h.push(r);
-  } else if (methodL === "reverseText") {
-    const text = urlSearchParamsGet(q) || (typeof window !== "undefined" ? window.cbState : null);
-    const r = await huntReverseText(text, 240);
-    h.push(r);
+  if (!Object.prototype.hasOwnProperty.call(OSINT_METHODS, methodL)) methodL = "web";
+  const query = String(q || "").trim();
+  if (!query) return jsonError(400, "أدخل كلمة للبحث أو نصاً للتحليل");
+
+  try {
+    const h = [];
+    if (methodL === "web") {
+      h.push(await huntSearchWeb(query));
+    } else if (methodL === "images") {
+      h.push(await huntSearchImages(query));
+    } else if (methodL === "reverseText") {
+      h.push(await huntReverseText(query, 240));
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      query,
+      method: methodL,
+      methodLabel: OSINT_METHODS[methodL],
+      sources: OSINT_HUNT_SOURCES,
+      hits: h
+    }), {
+      headers: { "content-type": "application/json", "cache-control": "no-store", "x-image-engine": "osint-hunt" }
+    });
+  } catch (e) {
+    try { console.error("[hunt] " + methodL + " failed:", e && e.stack ? e.stack : e); } catch (_) {}
+    return jsonError(502, "تعذر إكمال البحث: " + String(e && e.message ? e.message : e));
   }
-  return new Response(JSON.stringify({ ok: true, query: q, method: methodL, sources: OSINT_SOURCES, hits: h }), {
-    headers: { "content-type": "application/json", "cache-control": "no-store", "x-image-engine": "osint-hunt" }
-  });
 }
 
 // ---------- استبدال /api/search بعنوان hunt الجديد (المسبوق بـ OSINT) --
