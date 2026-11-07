@@ -913,14 +913,14 @@ async function handle(req, env) {
     try { return await handleAudio(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
   }
 
-  // ---------- مسح مصادر مفتوحة - OSINT ----------
-  // كل مصدر: عنوان، وصف عربي قصير، وطريقة بحث (get / post)
+    // ---------- مسح مصادر مفتوحة - OSINT (منطقة الحماية) ----------
+  // كل مصدر: عنوان، وصف عربي قصير، طريقة بحث (get / post)
   const OSINT_SOURCES = [
     {
       id: "facecheck",
       name: "Facecheck",
       host: "https://facecheck.id",
-      label: "بحث صورة بواسطة الوجه (بحث في الصور والفيbes واتصالات) - رابط مباشر محسن للوحة البحث",
+      label: "بحث صورة بواسطة الوجه (People Search بالصورة) - رابط مباشر محسن للوحة البحث",
       style: "search-by-image and people-search",
       path: (q) => encodeURIComponent(q),
       query: (q) => "q=" + q
@@ -942,8 +942,41 @@ async function handle(req, env) {
       style: "flight and airport database",
       path: (q) => encodeURIComponent(q),
       query: (q) => "q=" + q
+    },
+    {
+      id: "wiki",
+      name: "Wiki",
+      host: "https://en.wikipedia.org",
+      label: "مشروعFree EDU و encyclopedia مجاني - استرجاع المقالات والبيانات",
+      style: "encyclopedia and knowledge",
+      path: (q) => "/wiki/${encodeURIComponent(q)}",
+      query: (q) => ""
+    },
+    {
+      id: "phish",
+      name: "Phish",
+      host: "https://phish.me",
+      label: "قاعدة بيانات هجمات التصيد ووسائل الحماية - اكتشاف رابط مشبوه",
+      style: "security / threat intelligence",
+      path: (q) => encodeURIComponent(q),
+      query: (q) => "q=" + q
+    },
+    {
+      id: "rev",
+      name: "REV (Reverse Engineering Tools)",
+      host: "https://www.rev-tools.com",
+      label: "مكتبات أدوات هندسة المعكوس والتحليل الأمني - مشاريع ووثائق",
+      style: "reverse engineering tools",
+      path: (q) => encodeURIComponent(q),
+      query: (q) => "q=" + q
     }
   ];
+
+  function urlSearchParamsGet(q) {
+    if (q && typeof q === "object" && q.query !== undefined && q.q !== undefined) return q.query || q.q;
+    if (typeof q === "string") return q;
+    return "";
+  }
 
   async function fetchOSINT(url) {
     try {
@@ -1034,34 +1067,6 @@ async function handle(req, env) {
 
 export default { fetch: handle };
 
-// ---------- وحدة استخبارات بيانات بسيطة (OSINT) لا تتطلب رخصة أو مفتاح دفع ----------
-const OSINT_SOURCES = [
-  { id: "social", label: "مواقع التواصل الاجتماعي (Réseaux Sociaux)", query: "موقع + الاسم" },
-  { id: "scam", label: "العمليات المضللة / Escrocs", query: "الاسم أو العنوان أو رقم الهوية" },
-  { id: "news", label: "أخبار وتحليلات (Actualités & Blogs)", query: "الموضوع أو الاسم" },
-  { id: "crime", label: "المخالفات والجرائم (Délinquants)", query: "الاسم أو اللقب أو الرقم" },
-  { id: "fugitives", label: "الباحثون عن هروب (Fugitifs)", query: "الاسم أو الوصف" }
-];
-
-const OSINT_METHODS = {
-  web: "البحث في الصفحة",
-  images: "البحث عن الصور ومطابقتها",
-  reverseText: "التعلّم من النص المرفق"
-};
-
-async function searchDuckDuckGoLite(q) {
-  try {
-    const r = await fetch("https://lite.duckduckgo.com/lite?q=" + encodeURIComponent(q), { headers: UA, redirect: "follow" });
-    return await r.text();
-  } catch (_) { return ""; }
-}
-
-async function fetchHtml(rawUrl) {
-  try {
-    const direct = await fetch(rawUrl, { headers: UA, redirect: "follow" });
-    return await direct.text();
-  } catch (_) { return ""; }
-}
 
 function extractLinks(html) {
   const links = [];
