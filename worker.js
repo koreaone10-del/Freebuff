@@ -1196,9 +1196,10 @@ async function handleFlights() {
     });
   }
   let rows = [], source = "";
-  try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; } catch (_) { rows = []; }
+  // adsb.lol أولاً: أسرع بكثير من OpenSky من شبكة السحابة، ثم OpenSky كبديل
+  try { rows = (await adsbFlights()) || []; if (rows.length) source = "adsb.lol"; } catch (_) { rows = []; }
   if (!rows.length) {
-    try { rows = (await adsbFlights()) || []; if (rows.length) source = "adsb.lol"; } catch (_) { rows = []; }
+    try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; } catch (_) { rows = []; }
   }
   const aircraft = rows.map(flightRow).sort((a, b) => (a.toCapital || 0) - (b.toCapital || 0)).slice(0, 120);
   const data = {
