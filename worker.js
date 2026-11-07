@@ -1517,13 +1517,20 @@ async function huntSearchWeb(q) {
     results.push({ title: maxChars(title || "", 160), url, snippet: maxChars(snippet || "", 280) });
   };
 
-  // 1) DuckDuckGo عبر قارئ jina: يعيد صفحة نتائج نظيفة حتى من شبكة Worker
-  try {
-    const md = await jinaRead("html.duckduckgo.com/html/?q=" + encodeURIComponent(q));
-    const re = /\[([^\]\n]{3,160})\]\((https?:\/\/[^)\s]+)\)/g;
-    let m;
-    while ((m = re.exec(md || ""))) push(m[1].replace(/\s+/g, " ").trim(), m[2], "");
-  } catch (_) {}
+  // 1) فهارسان مفتوحان بلا مفتاح يعملان من أي شبكة: Hacker News وStack Exchange
+  const open = await Promise.all([
+    fetch("https://hn.algolia.com/api/v1/search?hitsPerPage=6&query=" + encodeURIComponent(q), { headers: UA })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch("https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&site=stackoverflow&pagesize=5&q=" + encodeURIComponent(q), { headers: UA })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+  ]);
+  for (const h of (open[0] && open[0].hits) || []) {
+    const title = h.title || h.story_title;
+    if (title) push(title, h.url || "https://news.ycombinator.com/item?id=" + h.objectID, h.author ? "Hacker News · " + h.author : "");
+  }
+  for (const it of (open[1] && open[1].items) || []) {
+    push(stripTags(it.title || ""), it.link, "Stack Overflow · " + (it.score || 0) + " نقطة");
+  }
 
   // 2) DuckDuckGo Lite مباشرة (يعمل من Node وبعض شبكات الحافة)
   if (results.length < 4) {
@@ -1542,18 +1549,21 @@ async function huntSearchWeb(q) {
     }
   }
 
-  // 3) ويكيبيديا: مصدر مضمون بلا مفتاح ولا حجب
-  if (results.length < 4) {
+  // 3) ويكيبيديا: مصدر مضمون، لكن فقط عندما يطابق العنوان أو المقتطف كلمة من الاستعلام
+  if (results.length < 6) {
     try {
-      const wr = await fetch("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=5&srsearch=" + encodeURIComponent(q), { headers: UA });
+      const wr = await fetch("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=6&srsearch=" + encodeURIComponent(q), { headers: UA });
       const wj = await wr.json();
+      const toks = q.toLowerCase().split(/[^a-z0-9\u0600-\u06ff.]+/).filter((t) => t.length > 2);
       for (const s of ((wj && wj.query && wj.query.search) || [])) {
+        const hay = (String(s.title || "") + " " + stripTags(s.snippet || "")).toLowerCase();
+        if (toks.length && !toks.some((t) => hay.includes(t))) continue;
         push(s.title, "https://en.wikipedia.org/wiki/" + encodeURIComponent(String(s.title || "").replace(/ /g, "_")), stripTags(s.snippet || ""));
       }
     } catch (_) {}
   }
 
-  return { hits: results.slice(0, 12), method: "DuckDuckGo (عبر jina) + Lite + ويكيبيديا" };
+  return { hits: results.slice(0, 12), method: "DuckDuckGo Lite + Hacker News + Stack Overflow + ويكيبيديا" };
 }
 
 async function huntSearchImages(q) {
