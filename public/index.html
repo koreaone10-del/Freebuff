@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" />
 <link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/hub.css" />
 </head>
 <body>
 <div class="aurora"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
@@ -43,6 +44,7 @@
     <div class="side-foot">
       <button id="btnExport">⬇ حفظ نسخة</button>
       <button id="btnImport">⬆ استيراد</button>
+      <button id="btnHub2">🛰️ مركز الأدوات</button>
       <button id="btnSettings">⚙ الإعدادات</button>
       <button id="btnConnect">🔌 الربط</button>
     </div>
@@ -54,6 +56,7 @@
       <button class="icon-btn" id="btnSide" title="القائمة">☰</button>
       <span class="model-wrap"><select id="modelSel"></select></span>
       <span class="health-dot" id="healthLabel" title="حالة المزوّدين الآن — انقر للتفاصيل"><i></i><b>جاهز</b></span>
+      <button class="icon-btn" id="btnHub" title="مركز الأدوات: طيران الجزائر، مستودعات، dojos، أدوات AI">🛰️</button>
     </header>
 
     <div id="chat"><div class="chat-col" id="chatCol"></div></div>
@@ -107,6 +110,11 @@
       <button class="sm on" data-a="violet">بنفسجي ملكي</button>
       <button class="sm" data-a="emerald">زمرّدي</button>
       <button class="sm" data-a="rose">ذهبي وردي</button>
+    </div>
+    <label>سرعة الرد</label>
+    <div class="seg" id="speedSeg">
+      <button class="sm on" data-fast="1">⚡ رد سريع (نماذج خفيفة، ردود أقصر)</button>
+      <button class="sm" data-fast="0">🧠 رد أعمق (تفكير أطول)</button>
     </div>
     <label>حالة المزوّدين الآن</label>
     <div class="prov-list" id="provList"></div>
@@ -293,6 +301,7 @@
 <script src="/webm.js"></script>
 <script src="/studio.js"></script>
 <script src="/account.js"></script>
+<script src="/hub.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

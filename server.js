@@ -91,9 +91,10 @@ const server = createServer(async (req, res) => {
         if (done) break;
         if (value) res.write(value);
       }
-    } else {
-      res.end();
     }
+    // مهم: إغلاق الرد دائماً. بدون هذا يبقى الاتصال معلّقاً (chunked بلا نهاية)
+    // فيبدو كل مسار /api/* «عالقاً» حتى مهلة العميل.
+    res.end();
   } catch (e) {
     console.error("[server] error:", e);
     try { res.writeHead(500, { "content-type": "text/plain" }); res.end("Internal Server Error"); } catch (_) {}

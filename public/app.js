@@ -113,7 +113,7 @@
     ctrl: null
   };
 
-  const DEFAULT_SETTINGS = { systemPrompt: "", persona: "", accent: "violet", model: "auto", skill: "" };
+  const DEFAULT_SETTINGS = { systemPrompt: "", persona: "", accent: "violet", model: "auto", skill: "", fast: true };
   let settings = Object.assign({}, DEFAULT_SETTINGS);
 
   /* ------------------------------ المعرفة -------------------------------- */
@@ -582,6 +582,9 @@
 
   /* ------------------------------ البثّ ---------------------------------- */
   async function streamChat(payload, node, msg, ansEl) {
+    // الوضع السريع افتراضياً: نماذج خفيفة + سقف رموز أقل، ويمكن تعطيله من الإعدادات
+    payload.fast = settings.fast !== false;
+    if (payload.fast && payload.max_tokens) payload.max_tokens = Math.min(payload.max_tokens, 1400);
     S.ctrl = new AbortController();
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -1168,6 +1171,7 @@
       const content = await enrich(text, files);
       if (S.mode === "research") { if (text) await runResearch(text); else await runChat(content); return; }
       if (S.mode === "site") { await runSite(text || content); return; }
+      if (S.mode === "osint") { await runOSINT(text || content); return; }
       await runChat(content);
     } catch (e) {
       deliver("⚠️ " + (e.message || "حدث خطأ غير متوقع"));
@@ -1315,6 +1319,7 @@
     const ta = $("#setSystem");
     if (ta) ta.value = settings.systemPrompt || "";
     $$("#personaSeg .sm").forEach((b) => b.classList.toggle("on", (b.dataset.p || "") === (settings.persona || "")));
+    $$("#speedSeg .sm").forEach((b) => b.classList.toggle("on", (b.dataset.fast === "0") !== (settings.fast !== false)));
     $$("#accentSeg .sm").forEach((b) => b.classList.toggle("on", (b.dataset.a || "") === (settings.accent || "violet")));
     renderProviders();
     refreshHealth(true);
@@ -1476,6 +1481,13 @@
     const clearBtn = $("#btnClearAll");
     if (clearBtn) clearBtn.addEventListener("click", clearAll);
 
+    $$("#speedSeg .sm").forEach((b) => b.addEventListener("click", () => {
+      settings.fast = b.dataset.fast !== "0";
+      $$("#speedSeg .sm").forEach((x) => x.classList.toggle("on", x === b));
+      saveSettings();
+      toast(settings.fast ? "⚡ وضع الرد السريع مفعّل" : "🧠 وضع الرد العميق مفعّل");
+    }));
+
     $$("#personaSeg .sm").forEach((b) => b.addEventListener("click", () => {
       settings.persona = b.dataset.p || "";
       $$("#personaSeg .sm").forEach((x) => x.classList.toggle("on", x === b));
@@ -1547,43 +1559,41 @@
     const narrow = window.matchMedia && window.matchMedia("(max-width: 560px)").matches;
     if (input) input.placeholder = (narrow ? shortHints[mode] : hints[mode]) || hints.chat;
     if (mode === "handle") runTools();
-    if (mode === "osint") runOSINT(input ? input.value.trim() : "");
     if (mode === "video" && CB.studio) CB.studio.open(input ? input.value.trim() : "");
   }
 
   async function runOSINT(q) {
-    if (!q) { toast("أدخل مصطلح بحث فعّال"); return; }
-    setMode("osint");
-    toast("🌐 جارٍ البحث في المصادر المفتوحة…");
-    const out = await CB.api("/api/hunt", { query: q });
-    if (!out || out.error) { toast("فشل البحث: " + (out && out.error ? String(out.error) : "خطأ غير معروف")); return; }
-    renderOSINT(out);
-  }
-
-  function renderOSINT(res) {
-    const box = $("#chat");
-    if (!box) return;
-    box.innerHTML = "";
-    const h = document.createElement("div");
-    h.className = "h";
-    h.innerHTML = "<dt>النتيجة</dt><dd>" + esc(JSON.stringify(res.summary || "", null, 0).replace(/\n/g, "<br>")) + "</dd>";
-    box.appendChild(h);
-    if (!res.sources.length) {
-      const e = document.createElement("div");
-      e.className = "e";
-      e.innerHTML = "<p>لم يُعثر على بيانات منظمة في المصادر المفتوحة لهذا المصطلح.</p>";
-      box.appendChild(e);
-      return;
+    const query = String(q || "").trim();
+    if (!query) { toast("أدخل مصطلح بحث فعّال في صندوق الرسالة"); return; }
+    setBusy(true);
+    const msg = { id: uid(), role: "ai", text: "", provider: "مصادر مفتوحة", at: Date.now() };
+    const node = addMessage(msg, { skipSave: true });
+    node.bubble.innerHTML = '<div class="typing"><i></i><i></i><i></i></div><div style="color:var(--muted);font-size:11.5px;margin-top:8px">أبحث في المصادر المفتوحة…</div>';
+    try {
+      const j = await api("/api/hunt?q=" + encodeURIComponent(query) + "&method=web");
+      const hits = ((j.hits && j.hits[0] && j.hits[0].hits) || []).filter((h) => h && h.url);
+      if (!hits.length) {
+        msg.text = "لم أجد نتائج مفتوحة عن «" + query + "». جرّب صياغة أخرى أو استخدم وضع البحث العميق.";
+        node.bubble.innerHTML = "";
+        fillBubble(node.bubble, msg);
+      } else {
+        const list = hits.slice(0, 10);
+        msg.text = "**نتائج المصادر المفتوحة عن «" + query + "»**\n\n" + list.map((h, i) =>
+          (i + 1) + ". [" + maxChars(h.title || h.url, 90) + "](" + h.url + ")" + (h.snippet ? " — " + maxChars(h.snippet, 180) : "")
+        ).join("\n");
+        node.bubble.innerHTML = "<div class=\"ans\"><b>نتائج المصادر المفتوحة عن «" + esc(query) + "»</b>" +
+          '<div class="sources" style="margin-top:10px">' + list.map((h, i) =>
+            '<a href="' + esc(h.url) + '" target="_blank" rel="noopener"><span class="n">[' + (i + 1) + "]</span><span>" + esc(maxChars(h.title || h.url, 100)) + "</span></a>"
+          ).join("") + "</div></div>";
+      }
+    } catch (e) {
+      msg.text = "⚠️ تعذّر البحث في المصادر المفتوحة: " + (e.message || "خطأ غير معروف");
+      node.bubble.innerHTML = "";
+      fillBubble(node.bubble, msg);
+    } finally {
+      saveSession(activeSession());
+      setBusy(false);
     }
-    res.sources.forEach((s, i) => {
-      const d = document.createElement("div");
-      d.className = "d";
-      const url = s.url || "";
-      d.innerHTML = "<b><a href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(s.title || s.source || "مصدر غير معرّف") + "</b> <span class=\"src\">" + esc(s.source || "") + "</span></dd>";
-      d.innerHTML += "<p>" + esc(s.description || "") + "</p>";
-      if (url) d.innerHTML += "<a class=\"mini-btn\" href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">فتح الملف</a>";
-      box.appendChild(d);
-    });
   }
 
   // عند انتهاء الجلسة (بدء جلسة جديدة) تعود الأدوات إلى حالتها الافتراضية

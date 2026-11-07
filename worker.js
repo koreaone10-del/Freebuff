@@ -211,13 +211,19 @@ async function tryUpstream(e, body) {
 
   markUsed(e);
   let resp;
+  // مهلة قصيرة لوصول الترويسات: مزوّد معلّق لا يجمّد الطلب، ننتقل لغيره فوراً
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), body.fast ? 9000 : 15000);
   try {
     resp = await fetch(e.provider.url, {
       method: "POST",
       headers: { "content-type": "application/json", ...UA, ...(e.provider.headers || {}) },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: ac.signal
     });
+    clearTimeout(timer);
   } catch (err) {
+    clearTimeout(timer);
     setCooldown(e.provider.id, e.model.id, 30000);
     return null;
   }
@@ -310,7 +316,11 @@ async function streamUnified(entry, resp, providerLabel, modelLabel) {
 async function handleChat(body, env) {
   const model = body && typeof body.model === "string" ? body.model : '';
   const chain = buildChain(model, env);
-  for (const e of chain.slice(0, 8)) {
+  // الوضع السريع: النماذج بلا تفكير مُطوّل أولاً، ومحاولات أقل
+  const ordered = body.fast
+    ? chain.slice().sort((a, b) => Number(!!a.model.reasoning) - Number(!!b.model.reasoning))
+    : chain;
+  for (const e of ordered.slice(0, body.fast ? 3 : 5)) {
     if (nowBusy(e.provider.id, e.model.id)) continue;
     const resp = await tryUpstream(e, body);
     if (!resp) continue;
@@ -1057,6 +1067,10 @@ async function handle(req, env) {
     });
   }
 
+  if (p === "/api/flights") return await handleFlights();
+  if (p === "/api/repos") return await handleRepos(url);
+  if (p === "/api/dojos") return await handleDojos(url);
+
   if (p === "/api/hunt" && req.method === "POST") {
     try { return await handleOSINT(await req.json()); } catch (e) { return jsonError(500, "خطأ داخلي: " + String(e)); }
   }
@@ -1067,6 +1081,318 @@ async function handle(req, env) {
 }
 
 export default { fetch: handle };
+
+// ============================================================
+// طيران مباشر فوق الجزائر — ADS-B مفتوح بلا مفاتيح
+// المصدران: OpenSky (صندوق إحداثيات واحد يغطي الجزائر) ثم adsb.lol كبديل
+// ============================================================
+const DZ = { minLat: 18.9, maxLat: 37.2, minLon: -8.75, maxLon: 12.05, clat: 28.03, clon: 2.6, cap: { lat: 36.7538, lon: 3.0588 } };
+let flightsCache = { at: 0, data: null };
+
+function toRad(d) { return (Number(d) * Math.PI) / 180; }
+function bearingTo(lat, lon, lat2, lon2) {
+  const y = Math.sin(toRad(lon2 - lon)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function angleDiff(a, b) {
+  const d = Math.abs(((Number(a) - Number(b)) % 360 + 360) % 360);
+  return d > 180 ? 360 - d : d;
+}
+function kmBetween(a, b, c, d) {
+  const R = 6371, dLat = toRad(c - a), dLon = toRad(d - b);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLon / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(s))));
+}
+
+function flightStatus(a) {
+  if (a.track == null) return "unknown";
+  const brg = bearingTo(a.lat, a.lon, DZ.clat, DZ.clon);
+  const diff = angleDiff(brg, a.track);
+  if (diff <= 55) return "in";
+  if (diff >= 125) return "out";
+  return "over";
+}
+
+async function openskyFlights() {
+  const u = "https://opensky-network.org/api/states/all?lamin=" + DZ.minLat + "&lomin=" + DZ.minLon +
+    "&lamax=" + DZ.maxLat + "&lomax=" + DZ.maxLon;
+  const r = await fetch(u, { headers: UA });
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  const states = (j && Array.isArray(j.states)) ? j.states : null;
+  if (!states) return null;
+  return states.map((s) => ({
+    hex: s[0],
+    callsign: String(s[1] || "").trim(),
+    country: s[2] || "",
+    lon: s[5],
+    lat: s[6],
+    alt: s[7] != null ? Math.round(s[7]) : (s[13] != null ? Math.round(s[13]) : null),
+    ground: !!s[8],
+    speed: s[9] != null ? Math.round(s[9] * 3.6) : null,
+    track: s[10] != null ? Math.round(s[10]) : null,
+    vrate: s[11] != null ? Math.round(s[11] * 196.85) : null,
+    model: "", reg: ""
+  })).filter((a) => a.lat != null && a.lon != null);
+}
+
+async function adsbPoint(lat, lon, radius) {
+  const r = await fetch("https://api.adsb.lol/v2/point/" + lat + "/" + lon + "/" + radius, { headers: UA });
+  if (!r.ok) return [];
+  const j = await r.json().catch(() => null);
+  return ((j && j.ac) || []).map((a) => ({
+    hex: a.hex,
+    callsign: String(a.flight || "").trim(),
+    country: "",
+    lat: a.lat,
+    lon: a.lon,
+    alt: a.alt_baro === "ground" ? 0 : (typeof a.alt_baro === "number" ? Math.round(a.alt_baro) : null),
+    ground: a.alt_baro === "ground",
+    speed: typeof a.gs === "number" ? Math.round(a.gs * 1.852) : null,
+    track: typeof a.track === "number" ? Math.round(a.track) : null,
+    vrate: typeof a.baro_rate === "number" ? Math.round(a.baro_rate) : null,
+    model: a.t || "",
+    reg: a.r || ""
+  })).filter((a) => a.lat != null && a.lon != null);
+}
+
+async function adsbFlights() {
+  const pts = [[36.75, 3.06], [35.62, -0.62], [36.28, 7.95], [32.49, 3.67], [31.67, 6.14], [27.2, 2.47], [22.8, 5.53]];
+  const seen = new Map();
+  const chunks = await Promise.all(pts.map((p) => adsbPoint(p[0], p[1], 250).catch(() => [])));
+  for (const list of chunks) for (const a of list) {
+    if (a.lat < DZ.minLat || a.lat > DZ.maxLat || a.lon < DZ.minLon || a.lon > DZ.maxLon) continue;
+    seen.set(a.hex, a);
+  }
+  const out = Array.from(seen.values());
+  return out.length ? out : null;
+}
+
+function flightRow(a) {
+  const st = flightStatus(a);
+  return {
+    hex: a.hex,
+    callsign: a.callsign || a.hex,
+    reg: a.reg || "",
+    model: a.model || "",
+    country: a.country || "",
+    lat: Math.round(a.lat * 1000) / 1000,
+    lon: Math.round(a.lon * 1000) / 1000,
+    alt: a.alt,
+    speed: a.speed,
+    track: a.track,
+    vrate: a.vrate,
+    ground: !!a.ground,
+    status: st,
+    toCapital: kmBetween(a.lat, a.lon, DZ.cap.lat, DZ.cap.lon)
+  };
+}
+
+async function handleFlights() {
+  if (flightsCache.data && Date.now() - flightsCache.at < 15000) {
+    return new Response(JSON.stringify(flightsCache.data), {
+      headers: { "content-type": "application/json", "cache-control": "no-store", "x-cache": "hit" }
+    });
+  }
+  let rows = [], source = "";
+  try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; } catch (_) { rows = []; }
+  if (!rows.length) {
+    try { rows = (await adsbFlights()) || []; if (rows.length) source = "adsb.lol"; } catch (_) { rows = []; }
+  }
+  const aircraft = rows.map(flightRow).sort((a, b) => (a.toCapital || 0) - (b.toCapital || 0)).slice(0, 120);
+  const data = {
+    ok: aircraft.length > 0,
+    source: source || "لا مصدر متاح الآن",
+    updated: new Date().toISOString(),
+    bbox: { minLat: DZ.minLat, maxLat: DZ.maxLat, minLon: DZ.minLon, maxLon: DZ.maxLon },
+    counts: {
+      total: aircraft.length,
+      in: aircraft.filter((a) => a.status === "in").length,
+      out: aircraft.filter((a) => a.status === "out").length,
+      over: aircraft.filter((a) => a.status === "over").length
+    },
+    aircraft
+  };
+  if (aircraft.length) flightsCache = { at: Date.now(), data };
+  return new Response(JSON.stringify(data), {
+    headers: { "content-type": "application/json", "cache-control": "no-store" }
+  });
+}
+
+// ============================================================
+// مستودعات مفتوحة المصدر: قائمة منسّقة + بحث حيّ في GitHub بلا مفتاح
+// ============================================================
+const REPO_CURATED = [
+  { repo: "ollama/ollama", cat: "ai", why: "تشغيل نماذج مفتوحة محلياً بأمر واحد" },
+  { repo: "huggingface/transformers", cat: "ai", why: "المكتبة المرجعية للنماذج المفتوحة" },
+  { repo: "ggml-org/llama.cpp", cat: "ai", why: "استدلال سريع على المعالج بلا GPU" },
+  { repo: "open-webui/open-webui", cat: "ai", why: "واجهة دردشة كاملة فوق Ollama" },
+  { repo: "langchain-ai/langchain", cat: "ai", why: "بناء وكلاء وسلاسل أدوات" },
+  { repo: "comfyanonymous/ComfyUI", cat: "image", why: "توليد صور بنماذج مفتوحة عبر رسم بياني" },
+  { repo: "AUTOMATIC1111/stable-diffusion-webui", cat: "image", why: "واجهة SD الكلاسيكية" },
+  { repo: "invoke-ai/InvokeAI", cat: "image", why: "استوديو صور احترافي مفتوح" },
+  { repo: "openai/whisper", cat: "audio", why: "تفريغ صوتي متعدد اللغات" },
+  { repo: "coqui-ai/TTS", cat: "audio", why: "توليد كلام بنماذج مفتوحة" },
+  { repo: "remotion-dev/remotion", cat: "video", why: "إنتاج فيديو بالكود (React)" },
+  { repo: "FFmpeg/FFmpeg", cat: "video", why: "المحرّك العالمي للصوت والصورة" },
+  { repo: "shaka-project/shaka-player", cat: "video", why: "مشغّل بث تكيّفي" },
+  { repo: "openskynetwork/opensky-api", cat: "flights", why: "بيانات الطيران المفتوحة (مصدر هذه الصفحة)" },
+  { repo: "wiedehopf/tar1090", cat: "flights", why: "خريطة ADS-B حيّة على خادمك" },
+  { repo: "flightaware/dump1090", cat: "flights", why: "استقبال ADS-B بمستقبل رخيص" },
+  { repo: "pwncollege/dojo", cat: "security", why: "منصّة pwn.college نفسها، مفتوحة بالكامل" },
+  { repo: "Gallopsled/pwntools", cat: "security", why: "أدوات استغلال ثنائيات" },
+  { repo: "radareorg/radare2", cat: "security", why: "هندسة عكسية" },
+  { repo: "NationalSecurityAgency/ghidra", cat: "security", why: "مفكّك ومحلّل ثنائيات" },
+  { repo: "lockfale/OSINT-Framework", cat: "osint", why: "شجرة أدوات OSINT" },
+  { repo: "jivoi/awesome-osint", cat: "osint", why: "قائمة OSINT الأشهر" },
+  { repo: "sherlock-project/sherlock", cat: "osint", why: "تتبّع اسم مستخدم عبر المواقع" },
+  { repo: "soxoj/maigret", cat: "osint", why: "ملف شخصي من اسم مستخدم" },
+  { repo: "kkuchta/css-only-chat", cat: "tools", why: "تجربة أنيقة: دردشة بلا JS" },
+  { repo: "public-apis/public-apis", cat: "tools", why: "واجهات برمجية مجانية" },
+  { repo: "EbookFoundation/free-programming-books", cat: "tools", why: "كتب برمجة مجانية" },
+  { repo: "httpie/cli", cat: "tools", why: "عميل HTTP ودود" }
+];
+let repoCache = { at: 0, key: "", data: null };
+const GH_HEADERS = { ...UA, accept: "application/vnd.github+json" };
+
+async function ghRepo(full) {
+  const r = await fetch("https://api.github.com/repos/" + full, { headers: GH_HEADERS });
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  if (!j || !j.full_name) return null;
+  return {
+    name: j.full_name,
+    url: j.html_url,
+    stars: j.stargazers_count,
+    lang: j.language || "",
+    desc: j.description || "",
+    topics: (j.topics || []).slice(0, 4),
+    updated: j.pushed_at
+  };
+}
+
+async function handleRepos(url) {
+  const q = String(url.searchParams.get("q") || "").trim();
+  const cat = String(url.searchParams.get("cat") || "all").toLowerCase();
+  const cacheKey = q + "|" + cat;
+  if (repoCache.data && repoCache.key === cacheKey && Date.now() - repoCache.at < 600000) {
+    return new Response(JSON.stringify(repoCache.data), { headers: { "content-type": "application/json", "cache-control": "no-store", "x-cache": "hit" } });
+  }
+  let repos = [];
+  if (q) {
+    const r = await fetch("https://api.github.com/search/repositories?q=" + encodeURIComponent(q) + "&sort=stars&order=desc&per_page=18", { headers: GH_HEADERS });
+    const j = await r.json().catch(() => null);
+    repos = ((j && j.items) || []).map((x) => ({
+      name: x.full_name, url: x.html_url, stars: x.stargazers_count,
+      lang: x.language || "", desc: x.description || "", topics: (x.topics || []).slice(0, 4),
+      updated: x.pushed_at, why: ""
+    }));
+  } else {
+    const picks = REPO_CURATED.filter((r) => cat === "all" || r.cat === cat).slice(0, 14);
+    const got = await Promise.all(picks.map((p) => ghRepo(p.repo).catch(() => null)));
+    repos = picks.map((p, i) => got[i] ? Object.assign({ cat: p.cat, why: p.why }, got[i]) : { name: p.repo, url: "https://github.com/" + p.repo, stars: null, lang: "", desc: p.why, why: p.why, cat: p.cat, topics: [] });
+  }
+  const data = { ok: true, query: q, cat, repos, credit: "GitHub API — بلا مفتاح (حد ≈60 طلباً/ساعة لكل IP)" };
+  if (repos.length) repoCache = { at: Date.now(), key: cacheKey, data };
+  return new Response(JSON.stringify(data), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+// ============================================================
+// dojos من pwn.college: قراءة حيّة للفهرس وللمراحل + بديل محلي
+// ============================================================
+const DOJO_FALLBACK = [
+  { slug: "linux-luminarium", name: "Linux Luminarium", track: "core", desc: "أساسيات لينكس وسطر الأوامر" },
+  { slug: "computing-101", name: "Computing 101", track: "core", desc: "كيف يعمل الحاسوب من الأسفل" },
+  { slug: "intro-to-cybersecurity", name: "Intro to Cybersecurity", track: "core", desc: "مدخل الأمن السيبراني" },
+  { slug: "program-misuse", name: "Program Misuse", track: "core", desc: "سوء استخدام البرامج" },
+  { slug: "how-2-linux", name: "How 2 Linux", track: "core", desc: "لينكس عملياً" },
+  { slug: "sandbox", name: "Sandbox", track: "core", desc: "بيئة التجارب" },
+  { slug: "web-security", name: "Web Security", track: "core", desc: "أمن الويب" },
+  { slug: "cryptography", name: "Cryptography", track: "core", desc: "التشفير" },
+  { slug: "system-exploitation", name: "System Exploitation", track: "core", desc: "استغلال الأنظمة" },
+  { slug: "reverse-engineering", name: "Reverse Engineering", track: "core", desc: "الهندسة العكسية" }
+];
+let dojoCache = { at: 0, list: null, details: new Map() };
+
+function stripTags(s) {
+  return String(s || "").replace(/<[^>]*>/g, " ").replace(/&mdash;/g, "—").replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+}
+
+async function dojoList() {
+  if (dojoCache.list && Date.now() - dojoCache.at < 21600000) return dojoCache.list;
+  let list = [];
+  try {
+    const r = await fetch("https://pwn.college/dojos", { headers: UA, redirect: "follow" });
+    if (r.ok) {
+      const html = await r.text();
+      // حدود الأقسام (h2) ثم كل روابط الـ dojos بترتيب الصفحة
+      const heads = [];
+      const h2re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+      let hm;
+      while ((hm = h2re.exec(html))) heads.push({ at: hm.index, text: stripTags(hm[1]).toLowerCase() });
+      const trackAt = (idx) => {
+        let t = "core";
+        for (const h of heads) {
+          if (h.at >= idx) break;
+          if (/getting started/.test(h.text)) t = "start";
+          else if (/core material/.test(h.text)) t = "core";
+          else if (/community material/.test(h.text)) t = "community";
+          else if (/course/.test(h.text)) t = "courses";
+        }
+        return t;
+      };
+      const re = /<a[^>]+href="\/dojo\/([a-z0-9._~-]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let m;
+      while ((m = re.exec(html))) {
+        const slug = m[1];
+        const inner = m[2];
+        const name = stripTags((inner.match(/<h4[^>]*>([\s\S]*?)<\/h4>/) || [])[1] || "");
+        const stats = stripTags((inner.match(/<p[^>]*>([\s\S]*?)<\/p>/) || [])[1] || "");
+        if (!slug || !name) continue;
+        if (list.some((d) => d.slug === slug)) continue;
+        list.push({ slug, name, track: trackAt(m.index), desc: maxChars(stats, 160), url: "https://pwn.college/dojo/" + slug });
+      }
+    }
+  } catch (_) {}
+  if (list.length < 6) list = DOJO_FALLBACK.slice();
+  dojoCache = { at: Date.now(), list, details: dojoCache.details };
+  return list;
+}
+
+async function dojoDetail(slug) {
+  const clean = String(slug || "").toLowerCase().replace(/[^a-z0-9._~-]/g, "");
+  if (!clean) return null;
+  const cached = dojoCache.details.get(clean);
+  if (cached && Date.now() - cached.at < 21600000) return cached.data;
+  const r = await fetch("https://pwn.college/dojo/" + clean, { headers: UA, redirect: "follow" });
+  if (!r.ok) return null;
+  const html = await r.text();
+  const name = stripTags((html.match(/<h1[^>]*>([\s\S]{0,120}?)<\/h1>/) || [])[1] || clean);
+  const modules = [];
+  const re = /<h4[^>]*class="card-title"[^>]*>([\s\S]{0,160}?)<\/h4>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const t = stripTags(m[1]);
+    if (t && !modules.includes(t)) modules.push(t);
+  }
+  const data = { slug: clean, name, modules: modules.slice(0, 24), url: "https://pwn.college/dojo/" + clean };
+  dojoCache.details.set(clean, { at: Date.now(), data });
+  return data;
+}
+
+async function handleDojos(url) {
+  const slug = url.searchParams.get("slug");
+  if (slug) {
+    const d = await dojoDetail(slug);
+    if (!d) return jsonError(404, "لم يُعثر على هذا الـ dojo");
+    return new Response(JSON.stringify({ ok: true, dojo: d }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  }
+  const list = await dojoList();
+  return new Response(JSON.stringify({ ok: true, dojos: list, source: "pwn.college/dojos", count: list.length }), {
+    headers: { "content-type": "application/json", "cache-control": "no-store" }
+  });
+}
 
 
 function extractLinks(html) {
