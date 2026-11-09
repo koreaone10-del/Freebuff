@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CHIBANI AI — منصة عالمية للذكاء الاصطناعي والابتكار والبرمجة</title>
-<meta name="description" content="منصة عالمية فخمة لذكاء اصطناعي مجاني بدون مفاتيح: دردشة مع تفكير عميق، بحث ومصادر، تحليل مواقع وملفات، رؤية، صوت، توليد صور وصوتيات، وإنتاج فيديو كامل — كل شيء في متصفحك وبلا حساب أو مفتاح API." />
+<meta name="description" content="منصة عربية للذكاء الاصطناعي والبحث والملفات وتوليد الصور عبر شبكة مفتوحة، مع رادار ADS-B مباشر للطائرات فوق الجزائر." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23e0c068'/><text y='72' x='50' text-anchor='middle' font-size='58'>✦</text></svg>" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="stylesheet" href="/hub.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
 </head>
 <body>
 <div class="aurora"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
@@ -69,7 +70,7 @@
           <button class="mode-chip" data-mode="site" title="تحقيق في موقع">🌐 تحليل موقع</button>
           <button class="mode-chip" data-mode="img" title="توليد صورة">🎨 توليد صورة</button>
           <button class="mode-chip" data-mode="osint" title="مسح ومصادر مفتوحة">🌐 تحقيق OSINT</button>
-          <button class="mode-chip" data-mode="video" title="إنتاج فيديو كامل بصور وتعليق صوتي وموسيقى">🎬 فيديو</button>
+          <button class="mode-chip" data-mode="video" title="تركيب فيديو من الصور والتعليق الصوتي والموسيقى">🎬 فيديو</button>
           <button class="mode-chip" data-mode="handle" title="أدوات خبير الموقع">🛠️ محرر حي</button>
           <button class="mode-chip" data-mode="hub" title="مركز الأدوات: طيران الجزائر، مستودعات مفتوحة، dojos، أدوات AI">🧰 مركز الأدوات</button>
         </div>
@@ -123,13 +124,13 @@
       <button id="btnClearAll" style="color:var(--danger)">🗑 تصفير الكل</button>
       <button id="btnSaveSettings" class="pri">حفظ</button>
     </div>
-    <div class="hint">🔒 المحادثات والإعدادات محفوظة في متصفحك فقط (IndexedDB وlocalStorage)، ولا حسابات على أي خادم ولا مفاتيح مدفوعة ولا تتبّع. الحساب اختياري ومحلي على هذا المتصفح وحده. النماذج مجانية من Pollinations وLLM7 وKilo وOVH، والبحث عبر DuckDuckGo وJina.</div>
+    <div class="hint">🔒 المحادثات والإعدادات محفوظة في متصفحك فقط (IndexedDB وlocalStorage)، ولا حسابات على أي خادم ولا مفاتيح مدفوعة ولا تتبّع. الحساب اختياري ومحلي على هذا المتصفح وحده. النماذج المجانية المتاحة من LLM7 وKilo، وتوليد الصور عبر AI Horde، والبحث عبر DuckDuckGo وJina.</div>
   </div>
 </div>
 
 <div class="overlay" id="videoOverlay">
   <div class="modal studio">
-    <h3>🎬 استوديو الفيديو — إنتاج كامل مجاناً</h3>
+    <h3>🎬 استوديو تركيب الفيديو — صور وتعليق ومونتاج</h3>
     <p class="st-lede">فكرة → سيناريو ومشاهد → صور مولّدة → تعليق صوتي عربي وموسيقى → مونتاج وتسجيل. كل شيء داخل متصفحك، بلا مفاتيح ولا حسابات.</p>
     <label>موضوع الفيديو أو فكرته</label>
     <textarea id="vdTopic" placeholder="مثال: فيلم قصير عن مدينة عائمة في السحاب، وطفل يبحث عن صديقه الآلي..."></textarea>
@@ -159,11 +160,11 @@
     </div>
     <label>محرّك الصور</label>
     <div class="seg" id="imgEngine">
-      <button class="sm on" data-engine="auto" title="يجرّب Pollinations السريع، ويعيد المحاولة تلقائياً على Horde عند نفاد الحصة">⚡ تلقائي</button>
-      <button class="sm" data-engine="pollinations" title="سريع جداً، لكن صورة واحدة كل 45 ثانية لكل عنوان IP">Pollinations</button>
-      <button class="sm" data-engine="horde" title="نماذج مفتوحة المصدر (SDXL وغيرها) على GPU متطوّعين — بلا مفتاح ولا حصة IP، لكن الطابور قد يطول">Horde مفتوح</button>
+      <button class="sm on" data-engine="auto" title="AI Horde: نماذج مفتوحة على وحدات GPU تطوعية، بلا مفتاح مستخدم">⚡ AI Horde — مجاني</button>
+      <button class="sm" data-engine="horde" title="شبكة GPU تطوعية مفتوحة؛ قد يختلف وقت الانتظار حسب الطابور">AI Horde</button>
     </div>
     <div class="vd-fmt" id="vdFmt"></div>
+    <p class="vd-note" style="margin:10px 0;color:var(--muted);font-size:12px;line-height:1.7">تنبيه تقني: هذا الاستوديو يركّب فيديو من الصور والصوت والحركة داخل المتصفح؛ لا يدّعي حالياً أنه يولّد حركة فيديو جديدة بنموذج Text-to-Video.</p>
     <div class="vd-stage" id="vdStage">
       <div class="vd-lines" id="vdLines"></div>
       <canvas id="vdPreview"></canvas>
@@ -302,6 +303,7 @@
 <script src="/webm.js"></script>
 <script src="/studio.js"></script>
 <script src="/account.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="/hub.js"></script>
 <script src="/app.js"></script>
 </body>

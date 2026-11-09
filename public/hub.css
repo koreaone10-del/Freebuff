@@ -267,11 +267,20 @@
   border-radius: 16px;
   background: radial-gradient(600px 400px at 50% 30%, rgba(110, 231, 242, 0.09), #070a12 70%);
   overflow: hidden;
-  min-height: 320px;
+  min-height: 420px;
 }
-#hubOverlay .fl-map svg { display: block; width: 100%; height: 100%; }
-#hubOverlay .fl-map .dot { cursor: pointer; transition: 0.15s; }
-#hubOverlay .fl-map .dot:hover { r: 6; }
+#hubOverlay .fl-map { overflow: hidden; isolation: isolate; background: #101a24; }
+#hubOverlay .fl-map .leaflet-container { width: 100%; height: 420px; min-height: 420px; background: #101a24; font-family: inherit; z-index: 1; }
+#hubOverlay .fl-map-head { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 11px; color:var(--hub-txt); font-size:12px; }
+#hubOverlay #flMapStamp { color:var(--hub-mut); font-size:10px; }
+#hubOverlay .aircraft-div-icon { background:transparent; border:0; }
+#hubOverlay .aircraft-glyph { display:flex; width:27px; height:27px; align-items:center; justify-content:center; color:var(--plane-color); font-size:22px; line-height:1; transform:rotate(var(--plane-angle)); filter:drop-shadow(0 1px 3px #000); text-shadow:0 0 5px #000; }
+#hubOverlay .airport-pin { border:0; background:transparent; color:#f0c96c; font-size:21px; text-shadow:0 1px 4px #000; }
+#hubOverlay .airport-pin span { display:block; text-align:center; }
+#hubOverlay .flight-popup { min-width:160px; color:#16202a; font-size:12px; line-height:1.8; }
+#hubOverlay .flight-popup b { font-size:14px; }
+#hubOverlay .map-fallback { padding:25px; color:#fff; font-size:12px; }
+#hubOverlay .leaflet-control-attribution { font-size:9px; }
 #hubOverlay .fl-wrap table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 #hubOverlay .fl-table-wrap {
   border: 1px solid var(--hub-line2);

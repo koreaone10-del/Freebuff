@@ -1,10 +1,8 @@
 // ============================================================
 // CHIBANI AI — Worker بدون أي مفاتيح API
 // يعتمد فقط على مزوّدين مجانيين يعملون بدون حساب:
-//  1) Pollinations  (GPT-OSS-20B: تفكير + أدوات)
-//  2) LLM7.io       (MiniMax-M2.7، Codestral)
-//  3) Kilo Gateway  (kilo-auto/free، Nemotron Ultra 550B، VL للرؤية)
-//  4) OVH AI        (gpt-oss-120b، Llama-3.3-70B، Qwen2.5-VL للصور، Whisper)
+//  1) LLM7.io       (MiniMax-M2.7، Codestral)
+//  2) Kilo Gateway  (نماذج مجانية حسب التوفر)
 // القراءة والبحث: r.jina.ai + DuckDuckGo Lite (مجاني بدون مفتاح)
 // ============================================================
 
@@ -13,19 +11,10 @@ const maxChars = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(
 
 const PROVIDERS = [
   {
-    id: "pollinations",
-    label: "Pollinations",
-    url: "https://text.pollinations.ai/openai",
-    headers: {},
-    entryModels: [
-      { id: "openai-fast", name: "GPT-OSS 20B (تفكير)", interval: 31000, reasoning: true, vision: false, tools: true }
-    ]
-  },
-  {
     id: "llm7",
     label: "LLM7",
     url: "https://api.llm7.io/v1/chat/completions",
-    headers: { authorization: "Bearer unused" },
+    headers: {},
     entryModels: [
       { id: "minimax-m2.7", name: "MiniMax M2.7", interval: 14000, reasoning: true, vision: false, tools: false },
       { id: "codestral-latest", name: "Codestral (برمجة)", interval: 14000, reasoning: false, vision: false, tools: false }
@@ -43,33 +32,15 @@ const PROVIDERS = [
       { id: "nvidia/nemotron-3.5-super-vl:free", name: "Nemotron VL (رؤية)", interval: 2500, reasoning: true, vision: true, tools: false }
     ]
   },
-  {
-    id: "ovh",
-    label: "OVH AI",
-    url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions",
-    headers: {},
-    entryModels: [
-      { id: "gpt-oss-120b", name: "GPT-OSS 120B (ضخم)", interval: 31000, reasoning: true, vision: false, tools: false },
-      { id: "Qwen3.5-397B-A17B", name: "Qwen3.5 397B (ضخم)", interval: 31000, reasoning: false, vision: false, tools: false },
-      { id: "Meta-Llama-3_3-70B-Instruct", name: "Llama 3.3 70B", interval: 31000, reasoning: false, vision: false, tools: false },
-      { id: "Mistral-Small-3.2-24B-Instruct-2506", name: "Mistral Small 3.2", interval: 31000, reasoning: false, vision: false, tools: false },
-      { id: "Qwen2.5-VL-72B-Instruct", name: "Qwen2.5 VL 72B (رؤية)", interval: 31000, reasoning: false, vision: true, tools: false }
-    ]
-  }
 ];
 
 // ترتيب "تلقائي": نوزّع بين المزوّدين للاستفادة من أكبر عدد من الحصص
 const AUTO_ORDER = [
   "kilo:kilo-auto/free",
-  "ovh:gpt-oss-120b",
   "llm7:minimax-m2.7",
-  "pollinations:openai-fast",
   "kilo:nvidia/nemotron-3-ultra-550b-a55b:free",
-  "ovh:Meta-Llama-3_3-70B-Instruct",
-  "llm7:codestral-latest",
-  "ovh:Mistral-Small-3.2-24B-Instruct-2506",
-  "kilo:cohere/north-mini-code:free",
-  "ovh:Qwen3.5-397B-A17B"
+  "kilo:nvidia/nemotron-3.5-super-vl:free",
+  "kilo:cohere/north-mini-code:free"
 ];
 
 const state = {
@@ -87,37 +58,6 @@ function setCooldown(p, m, ms) {
 function nowBusy(p, m) { return coolUntil(p, m) > Date.now(); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ---------- Respan Gateway (اختياري) ----------
-// بوابة متوافقة مع OpenAI: تُستخدم فقط عند ضبط RESPAN_API_KEY، وكل طلب يمرّ بها
-// يُسجَّل تلقائياً في Respan (بلا SDK) ويحمل الترويسة X-Respan-Log-Id.
-const RESPAN_BASE = "https://api.respan.ai/api";
-const RESPAN_DEFAULT_MODEL = "gpt-5.5";
-
-function respanKey(env) {
-  const k = env && env.RESPAN_API_KEY;
-  return (typeof k === "string" && k.trim()) ? k.trim() : "";
-}
-
-function respanModel(env) {
-  const m = env && env.RESPAN_MODEL;
-  return (typeof m === "string" && m.trim()) ? m.trim() : RESPAN_DEFAULT_MODEL;
-}
-
-// مدخل واحد للبوابة؛ عند أي فشل ينتقل الطلب تلقائياً إلى المزوّدين المجانيين
-function respanEntry(env, modelId) {
-  if (!respanKey(env)) return null;
-  const id = modelId || respanModel(env);
-  return {
-    provider: {
-      id: "respan",
-      label: "Respan Gateway",
-      url: RESPAN_BASE + "/chat/completions",
-      headers: { authorization: "Bearer " + respanKey(env) }
-    },
-    model: { id, name: id + " (Respan)", interval: 0, reasoning: false, vision: false, tools: false }
-  };
-}
-
 function kiloHourlyBlocked() {
   const arr = (state.hourly.get("kilo") || []).filter(t => Date.now() - t < 3600000);
   state.hourly.set("kilo", arr);
@@ -132,25 +72,16 @@ function allEntries() {
 }
 
 // بناء قائمة المزوّدين المرشحين لطلب واحد
-function buildChain(requested, env) {
+function buildChain(requested) {
   const all = allEntries();
-  // اختيار صريح من البوابة: respan::<model-id>
-  if (requested && String(requested).startsWith("respan::")) {
-    const gate = respanEntry(env, String(requested).slice("respan::".length).trim());
-    if (gate) return [gate];
-    return entriesAfter(all); // البوابة غير مهيّأة → المسار المجاني كما هو
-  }
-  let entries;
   if (requested && requested !== "auto") {
     const sep = requested.indexOf("::");
     const pid = requested.slice(0, sep), mid = requested.slice(sep + 2);
-    entries = all.filter(e => e.provider.id === pid && e.model.id === mid);
+    const entries = all.filter(e => e.provider.id === pid && e.model.id === mid);
     if (entries.length) return entries;
     return entriesAfter(all);
   }
-  const chain = entriesAfter(all);
-  const gate = respanEntry(env);
-  return gate ? [gate].concat(chain) : chain;
+  return entriesAfter(all);
 }
 
 function entriesAfter(all) {
@@ -206,8 +137,6 @@ async function tryUpstream(e, body) {
   };
   if (typeof body.temperature === "number") payload.temperature = body.temperature;
   if (typeof body.max_tokens === "number") payload.max_tokens = body.max_tokens;
-  // وسوم تظهر في سجلات Respan؛ تقرأها البوابة وتزيلها قبل تمرير الطلب للمزوّد
-  if (e.provider.id === "respan") payload.metadata = { app: "chibani-ai", workflow: "chat" };
 
   markUsed(e);
   let resp;
@@ -313,9 +242,9 @@ async function streamUnified(entry, resp, providerLabel, modelLabel) {
   });
 }
 
-async function handleChat(body, env) {
+async function handleChat(body) {
   const model = body && typeof body.model === "string" ? body.model : '';
-  const chain = buildChain(model, env);
+  const chain = buildChain(model);
   // الوضع السريع: النماذج بلا تفكير مُطوّل أولاً، ومحاولات أقل
   const ordered = body.fast
     ? chain.slice().sort((a, b) => Number(!!a.model.reasoning) - Number(!!b.model.reasoning))
@@ -398,7 +327,6 @@ async function handleFetchUrl(rawUrl) {
 // ---------- بحث مجاني (DuckDuckGo Lite المباشرة، ثم Jina كبديل) ----------
 async function handleVision(body) {
   const items = [
-    { p: "ovh", m: "Qwen2.5-VL-72B-Instruct", interval: 31000 },
     { p: "kilo", m: "nvidia/nemotron-3.5-super-vl:free", interval: 2500 }
   ];
   for (const it of items) {
@@ -428,31 +356,10 @@ async function handleVision(body) {
   return jsonError(503, "خدمة تحليل الصور مشغولة الآن، جرب بعد نصف دقيقة.");
 }
 
-// ---------- تفريغ صوتي (Whisper من OVH) ----------
-async function handleAudio(body) {
-  const dataurl = body.dataurl || "";
-  const m = /^data:([^;]+);base64,(.+)$/.exec(dataurl);
-  if (!m) return jsonError(400, "بيانات صوتية غير صالحة");
-  try {
-    const bin = atob(m[2]);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const fd = new FormData();
-    fd.append("model", "whisper-large-v3-turbo");
-    fd.append("file", new File([bytes], "audio." + ((m[1].split("/")[1] || "webm").split("+")[0]), { type: m[1] }));
-    const resp = await fetch("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/audio/transcriptions", {
-      method: "POST",
-      body: fd,
-      headers: UA
-    });
-    const j = await resp.json().catch(() => null);
-    if (j && (j.text || j.transcription)) {
-      return new Response(JSON.stringify({ text: j.text || j.transcription }), { headers: { "content-type": "application/json" } });
-    }
-    return jsonError(502, "فشل التفريغ الصوتي: " + String(JSON.stringify(j)).slice(0, 160));
-  } catch (e) {
-    return jsonError(502, "فشل تجهيز الملف الصوتي");
-  }
+// لا يوجد مسار تفريغ صوتي مفتوح ومستقر بلا مفتاح ضمن الخدمات المتاحة حالياً.
+// نعيد خطأ واضحاً بدلاً من إرسال الملفات إلى مزوّد يتطلب اعتماداً غير مضبوط.
+async function handleAudio() {
+  return jsonError(503, "التفريغ الصوتي غير مفعّل في نسخة عدم المفاتيح؛ لم نعتمد على مزوّد يتطلب مفتاح API.");
 }
 
 // ---------- توليد الفيديو: خطة المشاهد + التعليق الصوتي (بدون مفاتيح) ----------
@@ -631,8 +538,8 @@ async function hordeImage(prompt, w, h, seed, model) {
   if (!submit.ok || !sj.id) return { ok: false, status: submit.status, detail: maxChars(String(sj.message || sj.error || "تعذّر إرسال الطلب"), 160) };
 
   const t0 = Date.now();
-  while (Date.now() - t0 < 42000) {
-    await new Promise((r) => setTimeout(r, 1800));
+  while (Date.now() - t0 < 75000) {
+    await new Promise((r) => setTimeout(r, 2200));
     const chk = await fetch(HORDE.base + "/generate/check/" + sj.id, { headers: { ...UA, "Client-Agent": HORDE.agent } }).then((r) => r.json()).catch(() => null);
     if (chk && chk.faulted) return { ok: false, status: 502, detail: "فشل المولّد على عامل Horde" };
     if (chk && !chk.done && chk.wait_time > 55 && chk.queue_position > 40) {
@@ -659,106 +566,37 @@ async function handleImage(url) {
   if (!prompt) return jsonError(400, "لا يوجد وصف للصورة");
   const num = (v, d) => {
     const n = Math.round(Number(v));
-    return Number.isFinite(n) && n > 0 ? Math.min(1600, Math.max(256, n)) : d;
+    return Number.isFinite(n) && n > 0 ? Math.min(1024, Math.max(256, n)) : d;
   };
-  const w = num(url.searchParams.get("width"), 1024);
-  const h = num(url.searchParams.get("height"), 1024);
+  const w = num(url.searchParams.get("width"), 768);
+  const h = num(url.searchParams.get("height"), 768);
   const seed = Number(url.searchParams.get("seed")) || Math.floor(Math.random() * 1000000);
-  const provider = ["auto", "pollinations", "horde"].includes(String(url.searchParams.get("provider") || "")) ? String(url.searchParams.get("provider")) : "auto";
   const hmodel = Object.prototype.hasOwnProperty.call(HORDE_MODELS, String(url.searchParams.get("hmodel") || "")) ? String(url.searchParams.get("hmodel")) : "auto";
-  const fromHorde = async () => {
-    // Horde مجاني بلا حصة IP لكنه أبطأ بمقاسات كبيرة: نحدّ الضلع الأطول بـ768 ثم يكبّر المتصفح
-    const k = Math.min(1, 768 / Math.max(w, h));
-    const hw = Math.max(256, Math.round((w * k) / 8) * 8);
-    const hh = Math.max(256, Math.round((h * k) / 8) * 8);
-    const r = await hordeImage(prompt, hw, hh, seed, hmodel);
-    if (!r.ok) return null;
-    return new Response(r.buf, {
-      headers: {
-        "content-type": r.type,
-        "cache-control": "public, max-age=86400, immutable",
-        "x-image-size": hw + "x" + hh,
-        "x-image-model": "horde/" + r.model,
-        "x-image-provider": "horde"
-      }
-    });
-  };
-
-  if (provider === "horde") {
-    const hr = await fromHorde();
-    if (hr) return hr;
-    return new Response(JSON.stringify({ error: "طابور Horde المفتوح مزدحم الآن — أعد المحاولة أو بدّل المحرّك." }), {
-      status: 502,
-      headers: { "content-type": "application/json", "cache-control": "no-store" }
+  // AI Horde يقبل الطلبات المجهولة بمفتاحه العام 0000000000؛ لا يحتاج المستخدم مفتاحاً أو حساباً.
+  const k = Math.min(1, 768 / Math.max(w, h));
+  const hw = Math.max(256, Math.round((w * k) / 8) * 8);
+  const hh = Math.max(256, Math.round((h * k) / 8) * 8);
+  const result = await hordeImage(prompt, hw, hh, seed, hmodel);
+  if (!result.ok) {
+    return new Response(JSON.stringify({
+      ok: false,
+      error: result.detail || "شبكة GPU التطوعية مشغولة حالياً. أعد المحاولة بعد قليل.",
+      provider: "AI Horde",
+      retryable: true
+    }), {
+      status: result.status || 503,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
     });
   }
-
-  const base = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
-    "?width=" + w + "&height=" + h + "&nologo=true&seed=" + seed + "&model=";
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  let lastStatus = 0;
-  let lastDetail = "";
-  for (let round = 0; round < 2; round++) {
-    for (const model of ["flux", "turbo"]) {
-      try {
-        const r = await fetch(base + model + (round ? "&retry=" + round : ""), { headers: UA });
-        lastStatus = r.status;
-        if (!r.ok) {
-          const txt = await r.text().catch(() => "");
-          lastDetail = maxChars(txt, 200);
-          if (r.status === 402 || r.status === 429) {
-            const m = /retry after\s+(\d+)\s*s/i.exec(txt) || /"retry"\s*:\s*(\d+)/i.exec(txt);
-            const wait = m ? Math.min(120, Number(m[1])) : 0;
-            if (wait > 0) {
-              // حصة IP لـPollinations لا تمسّ Horde: في الوضع التلقائي نكمل التوليد بدل الانتظار
-              if (provider === "auto") {
-                const hr = await fromHorde();
-                if (hr) return hr;
-              }
-              return new Response(JSON.stringify({
-                error: "حصة الصور المجانية ممتلئة — إعادة المحاولة بعد " + wait + " ثانية.",
-                retry: wait,
-                upstream: r.status
-              }), {
-                status: 429,
-                headers: {
-                  "content-type": "application/json",
-                  "cache-control": "no-store",
-                  "x-retry-after": String(wait)
-                }
-              });
-            }
-          }
-          continue;
-        }
-        const ct = r.headers.get("content-type") || "";
-        if (!ct.startsWith("image/")) { lastDetail = "نوع غير متوقع: " + ct; continue; }
-        const buf = await r.arrayBuffer();
-        if (buf.byteLength < 1024) { lastDetail = "حجم صغير جداً"; continue; }
-        return new Response(buf, {
-          headers: {
-            "content-type": ct,
-            "cache-control": "public, max-age=86400, immutable",
-            "x-image-size": w + "x" + h,
-            "x-image-model": "pollinations/" + model,
-            "x-image-provider": "pollinations"
-          }
-        });
-      } catch (e) { lastDetail = String(e).slice(0, 120); }
+  return new Response(result.buf, {
+    headers: {
+      "content-type": result.type,
+      "cache-control": "no-store",
+      "x-image-size": hw + "x" + hh,
+      "x-image-model": "horde/" + result.model,
+      "x-image-provider": "AI Horde",
+      "x-image-seed": String(result.seed || seed)
     }
-    if (round === 0) await sleep(450);
-  }
-  if (provider === "auto") {
-    const hr = await fromHorde();
-    if (hr) return hr;
-  }
-  return new Response(JSON.stringify({
-    error: "خدمة توليد الصور مزدحمة الآن — أعد المحاولة بعد نصف دقيقة.",
-    upstream: lastStatus,
-    detail: lastDetail
-  }), {
-    status: 502,
-    headers: { "content-type": "application/json", "cache-control": "no-store" }
   });
 }
 
@@ -855,33 +693,23 @@ async function handle(req, env) {
         });
       }
     }
-    const gate = respanEntry(env);
-    if (gate) {
-      const until = coolUntil("respan", gate.model.id);
-      items.unshift({
-        id: "respan::" + gate.model.id,
-        label: gate.model.name + " — " + gate.provider.label,
-        status: until > Date.now() ? "cooling" : "ready",
-        coolFor: Math.max(0, Math.round((until - Date.now()) / 1000))
-      });
-    }
     return new Response(JSON.stringify({
       ok: true,
       providers: items,
-      respan: !!gate,
-      kiloHourlyUsed: (state.hourly.get("kilo") || []).length
+      kiloHourlyUsed: (state.hourly.get("kilo") || []).length,
+      media: {
+        imageProvider: "AI Horde anonymous volunteer GPU network",
+        imageRequiresUserKey: false,
+        trueTextToVideo: false,
+        currentVideoOutput: "browser-rendered motion video from generated stills and audio; not native text-to-video inference"
+      },
+      flightSources: ["adsb.lol", "airplanes.live", "OpenSky Network"],
+      flightMap: "Leaflet + OpenStreetMap tiles; live ADS-B positions when upstream coverage is available"
     }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   }
 
   if (p === "/api/models") {
     const out = [{ id: "auto", name: "تلقائي (توزيع ذكي بين كل المزوّدين)" }];
-    const gate = respanEntry(env);
-    if (gate) out.push({
-      id: "respan::" + gate.model.id,
-      name: gate.model.id + " — Respan Gateway",
-      reasoning: false,
-      vision: false
-    });
     for (const pr of PROVIDERS) for (const em of pr.entryModels) {
       out.push({
         id: pr.id + "::" + em.id,
@@ -897,7 +725,7 @@ async function handle(req, env) {
       if (!body || typeof body !== "object") {
         return jsonError(400, "بيانات غير صالحة: يُرجى إرسال JSON صحيح مع حقل messages");
       }
-      return await handleChat(body, env);
+      return await handleChat(body);
     } catch (e) {
       return jsonError(500, "خطأ داخلي: " + String(e));
     }
@@ -1119,13 +947,36 @@ function kmBetween(a, b, c, d) {
   return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(s))));
 }
 
+const DZ_POLYGON = [
+  [-8.67, 27.66], [-8.67, 25.0], [-4.82, 24.99], [-1.0, 22.75], [3.0, 19.9], [9.4, 19.9],
+  [9.5, 21.0], [11.97, 23.52], [11.5, 25.0], [9.9, 26.5], [9.4, 28.0], [9.0, 30.0],
+  [8.2, 32.0], [8.6, 34.5], [7.8, 36.9], [3.0, 36.9], [-1.0, 35.5], [-2.0, 35.1],
+  [-5.0, 35.9], [-6.0, 34.0], [-8.67, 30.0]
+];
+
+function insideDZ(lat, lon) {
+  let inside = false;
+  for (let i = 0, j = DZ_POLYGON.length - 1; i < DZ_POLYGON.length; j = i++) {
+    const [xi, yi] = DZ_POLYGON[i], [xj, yj] = DZ_POLYGON[j];
+    const crosses = ((yi > lat) !== (yj > lat)) &&
+      (lon < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-9) + xi);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
 function flightStatus(a) {
-  if (a.track == null) return "unknown";
-  const brg = bearingTo(a.lat, a.lon, DZ.clat, DZ.clon);
-  const diff = angleDiff(brg, a.track);
-  if (diff <= 55) return "in";
-  if (diff >= 125) return "out";
-  return "over";
+  if (a.track == null || a.speed == null) return "unknown";
+  const distanceKm = Math.max(0, Number(a.speed) || 0) * (5 / 60);
+  const heading = toRad(a.track);
+  const nextLat = a.lat + (distanceKm * Math.cos(heading)) / 111.32;
+  const cosLat = Math.max(0.15, Math.cos(toRad(a.lat)));
+  const nextLon = a.lon + (distanceKm * Math.sin(heading)) / (111.32 * cosLat);
+  const nowInside = insideDZ(a.lat, a.lon);
+  const soonInside = insideDZ(nextLat, nextLon);
+  if (!nowInside && soonInside) return "in";
+  if (nowInside && !soonInside) return "out";
+  return nowInside ? "over" : "unknown";
 }
 
 async function openskyFlights() {
@@ -1171,16 +1022,52 @@ async function adsbPoint(lat, lon, radius) {
   })).filter((a) => a.lat != null && a.lon != null);
 }
 
-async function adsbFlights() {
+async function adsbFlightsFrom(base) {
   const pts = [[36.75, 3.06], [35.62, -0.62], [36.28, 7.95], [32.49, 3.67], [31.67, 6.14], [27.2, 2.47], [22.8, 5.53]];
   const seen = new Map();
-  const chunks = await Promise.all(pts.map((p) => adsbPoint(p[0], p[1], 250).catch(() => [])));
+  const chunks = await Promise.all(pts.map(async (p) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    try {
+      const endpoint = base + "/v2/point/" + p[0] + "/" + p[1] + "/250";
+      const r = await fetch(endpoint, { headers: UA, signal: controller.signal });
+      if (!r.ok) return [];
+      const j = await r.json().catch(() => null);
+      return ((j && j.ac) || []).map((a) => ({
+        hex: a.hex,
+        callsign: String(a.flight || "").trim(),
+        country: "",
+        lat: a.lat,
+        lon: a.lon,
+        alt: a.alt_baro === "ground" ? 0 : (typeof a.alt_baro === "number" ? Math.round(a.alt_baro) : null),
+        ground: a.alt_baro === "ground",
+        speed: typeof a.gs === "number" ? Math.round(a.gs * 1.852) : null,
+        track: typeof a.track === "number" ? Math.round(a.track) : null,
+        vrate: typeof a.baro_rate === "number" ? Math.round(a.baro_rate) : null,
+        model: a.t || "",
+        reg: a.r || ""
+      })).filter((a) => a.hex && Number.isFinite(a.lat) && Number.isFinite(a.lon));
+    } finally { clearTimeout(timer); }
+  }));
   for (const list of chunks) for (const a of list) {
     if (a.lat < DZ.minLat || a.lat > DZ.maxLat || a.lon < DZ.minLon || a.lon > DZ.maxLon) continue;
     seen.set(a.hex, a);
   }
-  const out = Array.from(seen.values());
-  return out.length ? out : null;
+  return Array.from(seen.values());
+}
+
+async function adsbFlights() {
+  // Two independent community aggregators. The second is a genuine fallback,
+  // not merely a retry against the same host.
+  for (const base of ["https://api.adsb.lol", "https://api.airplanes.live"]) {
+    try {
+      const rows = await adsbFlightsFrom(base);
+      if (rows.length) return { rows, source: base.includes("airplanes.live") ? "airplanes.live" : "adsb.lol" };
+    } catch (error) {
+      console.warn("[flights] ADS-B source failed:", base, String(error).slice(0, 140));
+    }
+  }
+  return null;
 }
 
 function flightRow(a) {
@@ -1210,10 +1097,14 @@ async function handleFlights() {
     });
   }
   let rows = [], source = "";
-  // adsb.lol أولاً: أسرع بكثير من OpenSky من شبكة السحابة، ثم OpenSky كبديل
-  try { rows = (await adsbFlights()) || []; if (rows.length) source = "adsb.lol"; } catch (_) { rows = []; }
+  // Try independent ADS-B aggregators first, then OpenSky as a third source.
+  try {
+    const result = await adsbFlights();
+    if (result && result.rows.length) { rows = result.rows; source = result.source; }
+  } catch (_) { rows = []; }
   if (!rows.length) {
-    try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; } catch (_) { rows = []; }
+    try { rows = (await openskyFlights()) || []; if (rows.length) source = "OpenSky Network"; }
+    catch (error) { console.warn("[flights] OpenSky failed:", String(error).slice(0, 140)); }
   }
   // استبعاد المركبات الأرضية (برج المراقبة، سيارات المطار) — ليست رحلات جوية
   const aircraft = rows.filter((a) => !a.ground).map(flightRow)

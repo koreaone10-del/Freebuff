@@ -822,9 +822,8 @@
   }
 
   /* --------------------------- محرّك الصور ----------------------------- */
-  // مصدران مجانيان بلا مفاتيح: Pollinations (سريع، صورة كل 45ث لكل IP) وHorde (نماذج مفتوحة المصدر
-  // على GPU متطوّعين، طابور أبطأ لكن بلا حصة IP). "تلقائي" يجرّب الأول ثم يكمل بالثاني.
-  const IMG_ENGINES = { auto: "تلقائي", pollinations: "Pollinations", horde: "Horde" };
+  // AI Horde شبكة مفتوحة من وحدات GPU التطوعية؛ طلب مجهول بلا مفتاح مستخدم، مع انتظار حسب الطابور.
+  const IMG_ENGINES = { auto: "AI Horde — تلقائي", horde: "AI Horde" };
   const ENGINE_KEY = "cb.imgsrc";
 
   function imageEngine() {
@@ -860,16 +859,14 @@
     const box = document.createElement("div");
     box.className = "genimg";
     box.dataset.prompt = p;
-    box.innerHTML = '<div class="shimmer"><div><div class="spin"></div><div class="gprog">يولّد الصورة… 0%</div></div></div>';
+    box.innerHTML = '<div class="shimmer"><div><div class="spin"></div><div class="gprog">إرسال الطلب إلى شبكة AI Horde…</div></div></div>';
     const img = new Image();
     img.alt = p;
     img.loading = "lazy";
-    let pct = 0;
     const timer = setInterval(() => {
-      pct = Math.min(92, pct + Math.max(1, Math.round((92 - pct) * 0.08)));
       const g = box.querySelector(".gprog");
-      if (g) g.textContent = "يولّد الصورة… " + pct + "%";
-    }, 420);
+      if (g) g.textContent = "انتظار عامل GPU متطوّع على AI Horde…";
+    }, 7000);
     img.onload = () => {
       clearInterval(timer);
       box.classList.add("loaded");
@@ -879,7 +876,7 @@
     };
     img.onerror = () => {
       clearInterval(timer);
-      box.innerHTML = '<div class="errbox">تعذّر توليد الصورة الآن — خدمة الصور المجانية مزدحمة.<br>جرّب وصفاً أبسط أو أعد المحاولة بعد نصف دقيقة.</div><div class="imgbar"><button type="button" data-retry="1">↻ إعادة المحاولة</button></div>';
+      box.innerHTML = '<div class="errbox">تعذّر توليد الصورة الآن — شبكة AI Horde تعتمد على عمّال GPU متطوعين وقد يكون الطابور مزدحماً أو لا يوجد عامل مناسب.<br>أعد المحاولة لاحقاً أو جرّب وصفاً ومقاساً أبسط.</div><div class="imgbar"><button type="button" data-retry="1">↻ إعادة المحاولة</button></div>';
       const r = box.querySelector("[data-retry]");
       if (r) r.addEventListener("click", () => { const node = box.closest(".msg"); if (node) node.remove(); runImage(p, { seed: Math.floor(Math.random() * 1e6) }); });
     };

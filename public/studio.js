@@ -165,16 +165,16 @@
     }
   }
 
-  // محرّك الصور المختار في الواجهة: auto (Pollinations ثم Horde) أو أحدهما صراحةً
+  // محرّك الصور المفتوح: AI Horde عبر شبكة GPU تطوعية بلا مفتاح مستخدم
   function imageEngine() {
     try {
       const v = localStorage.getItem("cb.imgsrc");
-      if (v === "auto" || v === "pollinations" || v === "horde") return v;
+      if (v === "auto" || v === "horde") return v;
     } catch (_) {}
     return "auto";
   }
 
-  // صورة واحدة قد تحجبها حصة الخدمة المجانية (صورة كل 45 ثانية): ننتظر ونعيد المحاولة.
+  // صور AI Horde قد تنتظر في طابور GPU التطوعي؛ نعيد المحاولة عند تعثر العامل.
   async function sceneImage(prompt, w, h, seed, onWait) {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (S.canceled) throw new Error("أُلغي الإنتاج");

@@ -65,6 +65,7 @@
     if (tab === "flights") {
       loadFlights();
       startFlightsPoll();
+      setTimeout(() => flightMap && flightMap.invalidateSize(), 180);
     } else stopFlightsPoll();
     if (tab === "repos" && !st.repos) loadRepos();
     if (tab === "dojos" && !st.dojos) loadDojos();
@@ -111,7 +112,7 @@
       /* ---------- flights ---------- */
       '<div class="hub-pane" data-pane="flights">' +
       '<div class="hub-hero"><h2>مسار الطائرات الداخلة والخارجة من الجزائر</h2>' +
-      '<p>قراءة حيّة من شبكة ADS-B المفتوحة (OpenSky ثم adsb.lol) داخل صندوق أجواء الجزائر. التصنيف محسوب من اتجاه الطائرة بالنسبة لمركز البلاد: <b>داخلة</b> متجهة نحو الداخل، <b>خارجة</b> مبتعدة، و<b>عبور</b> تعبر الأجواء. المواقع تقريبية وتُحدَّث كل 20 ثانية.</p></div>' +
+      '<p>خريطة جغرافية مباشرة مبنية على Leaflet وOpenStreetMap، مع مواقع ADS-B من الشبكات المفتوحة adsb.lol وAirplanes.live وOpenSky. تُحدَّث العلامات كل 20 ثانية عندما تتوفر بيانات. تصنيف الدخول والخروج تقديري من المسار، وليس مساراً رسمياً من برج المراقبة.</p></div>' +
       '<div class="hub-row" style="margin-bottom:8px">' +
       '<button class="hub-mini pri" id="flRefresh">↻ تحديث الآن</button>' +
       '<button class="hub-mini on" data-fl-filter="all">الكل</button>' +
@@ -122,7 +123,7 @@
       '<span class="hub-spacer"></span><span id="flSource" style="color:var(--hub-mut);font-size:11px"></span>' +
       '</div>' +
       '<div class="fl-stats" id="flStats"></div>' +
-      '<div class="fl-wrap"><div class="fl-map" id="flMap"></div><div class="fl-table-wrap"><table><thead><tr>' +
+      '<div class="fl-wrap"><div><div class="fl-map-head"><b>الخريطة الحيّة — الجزائر وشمال إفريقيا</b><span id="flMapStamp">في انتظار بيانات ADS-B…</span></div><div class="fl-map" id="flMap"></div></div><div class="fl-table-wrap"><table><thead><tr>' +
       '<th>الرحلة</th><th>النوع</th><th>الحالة</th><th>الارتفاع</th><th>السرعة</th><th>إلى الجزائر العاصمة</th>' +
       '</tr></thead><tbody id="flRows"><tr><td colspan="6" class="hub-empty">جارٍ قراءة الأجواء…</td></tr></tbody></table></div></div>' +
       '</div>' +
@@ -169,7 +170,7 @@
   }
 
   const TOOLS = [
-    { ic: "🎨", t: "توليد صورة مجاناً", d: "Pollinations أو Horde بنماذج مفتوحة — بلا مفتاح ولا حساب.", b: "صور", act: () => { close(); CB.chat.setMode("img"); focusInput("صورة سينمائية لمدينة جزائرية عائمة فوق السحاب عند الغروب، تفاصيل عالية"); } },
+    { ic: "🎨", t: "توليد صورة مجاناً", d: "AI Horde بنماذج مفتوحة المصدر على GPU متطوعين — بلا مفتاح مستخدم.", b: "صور", act: () => { close(); CB.chat.setMode("img"); focusInput("صورة سينمائية لمدينة جزائرية عائمة فوق السحاب عند الغروب، تفاصيل عالية"); } },
     { ic: "🎬", t: "إنتاج فيديو كامل", d: "سيناريو ومشاهد وصور وتعليق صوتي وموسيقى، ثم تسجيل MP4.", b: "فيديو", act: () => { close(); if (CB.studio) CB.studio.open(""); } },
     { ic: "🔎", t: "بحث عميق بمصادر", d: "يبحث في الويب، يقرأ الصفحات، ويجيب باستشهادات مرقّمة.", b: "بحث", act: () => { close(); CB.chat.setMode("research"); focusInput("ما آخر ما وصل إليه الذكاء الاصطناعي المفتوح المصدر في 2026؟"); } },
     { ic: "🌐", t: "تحليل موقع", d: "يقرأ صفحة كاملة ويحلّل الهدف والبنية والتقنية والتحسينات.", b: "ويب", act: () => { close(); CB.chat.setMode("site"); focusInput("https://"); } },
@@ -324,41 +325,82 @@
     });
   }
 
-  // رسم تقريبي: الإحداثيات مسقطة على صندوق أجواء الجزائر
+  // خريطة جغرافية حقيقية: Leaflet + بلاطات OpenStreetMap + علامات ADS-B حيّة.
+  let flightMap = null;
+  let flightLayer = null;
+  const flightMarkers = new Map();
+
+  function initFlightMap(host) {
+    if (!host || !window.L) {
+      if (host) host.innerHTML = '<div class="map-fallback">تعذّر تحميل مكتبة الخريطة. تحقق من اتصال الإنترنت ثم أعد المحاولة.</div>';
+      return false;
+    }
+    if (!flightMap) {
+      flightMap = L.map(host, { zoomControl: true, preferCanvas: true, worldCopyJump: true }).setView([28.2, 2.6], 4);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        minZoom: 3,
+        maxZoom: 18,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>',
+        crossOrigin: true
+      }).addTo(flightMap);
+      flightMap.fitBounds([[18.9, -8.75], [37.2, 12.05]], { padding: [12, 12] });
+      flightLayer = L.layerGroup().addTo(flightMap);
+      L.marker([36.7538, 3.0588], {
+        icon: L.divIcon({ className: "airport-pin", html: '<span>✈</span>', iconSize: [26, 26], iconAnchor: [13, 13] })
+      }).bindPopup("الجزائر العاصمة").addTo(flightMap);
+    }
+    setTimeout(() => flightMap && flightMap.invalidateSize(), 120);
+    return true;
+  }
+
+  function planeIcon(a) {
+    const color = a.status === "in" ? "#55e6a5" : a.status === "out" ? "#ff8585" : "#78dff5";
+    const angle = Number.isFinite(Number(a.track)) ? Number(a.track) : 0;
+    return L.divIcon({
+      className: "aircraft-div-icon",
+      html: '<span class="aircraft-glyph" style="--plane-color:' + color + ';--plane-angle:' + angle + 'deg">✈</span>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+  }
+
+  function flightPopup(a) {
+    const alt = a.alt == null ? "غير متاح" : Number(a.alt).toLocaleString("ar-DZ") + " قدم";
+    const speed = a.speed == null ? "غير متاحة" : Number(a.speed).toLocaleString("ar-DZ") + " كم/س";
+    return '<div class="flight-popup" dir="rtl"><b>' + esc(a.callsign || a.hex || "طائرة") + '</b>' +
+      '<div>النوع: ' + esc(a.model || "غير معروف") + '</div>' +
+      '<div>التسجيل: ' + esc(a.reg || "غير متاح") + '</div>' +
+      '<div>الارتفاع: ' + alt + '</div><div>السرعة: ' + speed + '</div>' +
+      '<div>الاتجاه: ' + (a.track == null ? "غير متاح" : Number(a.track) + "°") + '</div>' +
+      '<div>المصدر: ADS-B · ' + esc(fltStatusLabel(a.status)) + '</div></div>';
+  }
+
   function drawMap(j) {
     const host = $("#flMap");
-    if (!host) return;
-    const b = j.bbox || { minLat: 18.9, maxLat: 37.2, minLon: -8.75, maxLon: 12.05 };
-    const W = 600, H = 520, pad = 14;
-    const x = (lon) => pad + ((lon - b.minLon) / (b.maxLon - b.minLon)) * (W - pad * 2);
-    const y = (lat) => pad + ((b.maxLat - lat) / (b.maxLat - b.minLat)) * (H - pad * 2);
-    const outline = [
-      [-8.67, 27.66], [-8.67, 25.0], [-4.82, 24.99], [-1.0, 22.75], [3.0, 19.9], [9.4, 19.9],
-      [9.5, 21.0], [11.97, 23.52], [11.5, 25.0], [9.9, 26.5], [9.4, 28.0], [9.0, 30.0],
-      [8.2, 32.0], [8.6, 34.5], [7.8, 36.9], [3.0, 36.9], [-1.0, 35.5], [-2.0, 35.1],
-      [-5.0, 35.9], [-6.0, 34.0], [-8.67, 30.0]
-    ];
-    const poly = outline.map((p) => x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)).join(" ");
-    const dots = (j.aircraft || []).slice(0, 120).map((a) => {
-      const col = a.status === "in" ? "#57e0a0" : a.status === "out" ? "#ff7b7b" : "#6ee7f2";
-      const px = x(a.lon).toFixed(1), py = y(a.lat).toFixed(1);
-      return '<circle class="dot" cx="' + px + '" cy="' + py + '" r="3.4" fill="' + col + '" opacity="0.9"><title>' + esc(a.callsign || a.hex) + " · " + fltStatusLabel(a.status) + '</title></circle>';
-    }).join("");
-    let grid = "";
-    for (let i = 1; i < 6; i++) {
-      const gx = (pad + (i * (W - pad * 2)) / 6).toFixed(1);
-      const gy = (pad + (i * (H - pad * 2)) / 6).toFixed(1);
-      grid += '<line x1="' + gx + '" y1="' + pad + '" x2="' + gx + '" y2="' + (H - pad) + '" stroke="rgba(255,255,255,0.05)" />';
-      grid += '<line x1="' + pad + '" y1="' + gy + '" x2="' + (W - pad) + '" y2="' + gy + '" stroke="rgba(255,255,255,0.05)" />';
+    if (!initFlightMap(host)) return;
+    const live = new Map((j.aircraft || []).filter(a => Number.isFinite(Number(a.lat)) && Number.isFinite(Number(a.lon))).map(a => [String(a.hex || a.callsign), a]));
+    for (const [id, marker] of flightMarkers) {
+      if (!live.has(id)) {
+        flightLayer.removeLayer(marker);
+        flightMarkers.delete(id);
+      }
     }
-    const cap = { lat: 36.7538, lon: 3.0588 };
-    host.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' + grid +
-      '<polygon points="' + poly + '" fill="rgba(224,192,104,0.09)" stroke="rgba(224,192,104,0.55)" stroke-width="1.6" />' +
-      dots +
-      '<circle cx="' + x(cap.lon) + '" cy="' + y(cap.lat) + '" r="4.5" fill="#e0c068" stroke="#14100a" stroke-width="1.5" />' +
-      '<text x="' + (x(cap.lon) + 8) + '" y="' + (y(cap.lat) - 8) + '" fill="#f6e2a5" font-size="11" font-family="Cairo,sans-serif">الجزائر العاصمة</text>' +
-      '<text x="' + (W / 2) + '" y="' + (H - 22) + '" text-anchor="middle" fill="rgba(255,255,255,0.25)" font-size="12" font-family="Cairo,sans-serif">الجزائر · بلا خلفية خرائط (مخطط تقريبي)</text>' +
-      '</svg>';
+    for (const [id, a] of live) {
+      let marker = flightMarkers.get(id);
+      const latlng = [Number(a.lat), Number(a.lon)];
+      if (!marker) {
+        marker = L.marker(latlng, { icon: planeIcon(a), keyboard: true, title: a.callsign || a.hex || "Aircraft" });
+        marker.bindPopup(flightPopup(a));
+        marker.addTo(flightLayer);
+        flightMarkers.set(id, marker);
+      } else {
+        marker.setLatLng(latlng);
+        marker.setIcon(planeIcon(a));
+        marker.setPopupContent(flightPopup(a));
+      }
+    }
+    const stamp = $("#flMapStamp");
+    if (stamp) stamp.textContent = "آخر تحديث: " + new Date(j.updated || Date.now()).toLocaleTimeString("ar-DZ") + " · " + live.size + " طائرة";
   }
 
   function askFlight(a) {

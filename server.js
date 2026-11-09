@@ -1,106 +1,176 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { join, dirname } from "node:path";
+import { join, resolve, sep, extname } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
+const PUBLIC_DIR = resolve(__dirname, "public");
 const PORT = Number(process.env.PORT) || 10000;
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES) || 20 * 1024 * 1024;
 
 let workerModule;
 try {
   workerModule = await import("./worker.js");
-} catch (e) {
-  console.error("[server] فشل تحميل worker.js:", e.message);
+} catch (error) {
+  console.error("[server] فشل تحميل worker.js:", error?.stack || error);
   process.exit(1);
 }
 
-const PUBLIC_DIR = join(__dirname, "public");
-const STATIC_RE = /\.(js|css|png|jpg|jpeg|svg|woff|woff2|ico|webp|mp4|webm|txt|json)$/i;
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8"
+};
+const STATIC_EXTENSIONS = new Set(Object.keys(MIME));
+const BASE_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-frame-options": "SAMEORIGIN"
+};
+
+function send(res, status, body, headers = {}) {
+  if (res.headersSent || res.destroyed) return;
+  res.writeHead(status, { ...BASE_HEADERS, ...headers });
+  res.end(body);
+}
+
+async function readJsonBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) {
+      const error = new Error("BODY_TOO_LARGE");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  if (!size) return null;
+  const raw = Buffer.concat(chunks).toString("utf8");
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const error = new Error("INVALID_JSON");
+    error.status = 400;
+    throw error;
+  }
+}
+
+function serveStatic(pathname, method, res) {
+  if (method !== "GET" && method !== "HEAD") return false;
+  const relative = pathname === "/" ? "index.html" : decodeURIComponent(pathname.slice(1));
+  const filePath = resolve(PUBLIC_DIR, relative);
+  if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + sep)) {
+    send(res, 403, "Forbidden", { "content-type": "text/plain; charset=utf-8" });
+    return true;
+  }
+  const ext = extname(filePath).toLowerCase();
+  if (!STATIC_EXTENSIONS.has(ext)) return false;
+  try {
+    const body = readFileSync(filePath);
+    res.writeHead(200, {
+      ...BASE_HEADERS,
+      "content-type": MIME[ext],
+      "cache-control": ext === ".html" ? "no-cache" : "public, max-age=3600"
+    });
+    res.end(method === "HEAD" ? undefined : body);
+  } catch {
+    send(res, 404, "Not found", { "content-type": "text/plain; charset=utf-8" });
+  }
+  return true;
+}
 
 const server = createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    const pathname = url.pathname;
-
-    if (STATIC_RE.test(pathname) || pathname === "/") {
-      let filePath = pathname === "/" ? join(PUBLIC_DIR, "index.html") : join(PUBLIC_DIR, pathname.slice(1));
-      try {
-        const fileBody = readFileSync(filePath);
-        const ext = filePath.split(".").pop() || "html";
-        const mime =
-          ext === "html" ? "text/html" :
-          ext === "css" ? "text/css" :
-          ext === "js" ? "text/javascript" :
-          ext === "json" ? "application/json" :
-          ext === "png" ? "image/png" :
-          ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
-          ext === "svg" ? "image/svg+xml" :
-          ext === "webp" ? "image/webp" :
-          ext === "ico" ? "image/x-icon" :
-          ext === "mp4" ? "video/mp4" :
-          ext === "webm" ? "video/webm" : "application/octet-stream";
-        res.writeHead(200, { "content-type": mime, "cache-control": "no-cache", "x-content-type-options": "nosniff" });
-        return res.end(fileBody);
-      } catch {
-        res.writeHead(404, { "content-type": "text/plain" });
-        return res.end("Not found");
-      }
+    let url;
+    try {
+      url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    } catch {
+      return send(res, 400, "Bad Request", { "content-type": "text/plain; charset=utf-8" });
     }
 
-    // API -> Worker (cloudflare)
-    let bodyText = null;
+    if (serveStatic(url.pathname, req.method || "GET", res)) return;
+
     let parsed = null;
     if (req.method !== "GET" && req.method !== "HEAD") {
       try {
-        const chunks = [];
-        for await (const ch of req) chunks.push(ch);
-        bodyText = Buffer.concat(chunks).toString("utf8");
-        parsed = JSON.parse(bodyText);
-        if (parsed && typeof parsed === "object") {
-          if (parsed.stream === undefined) parsed.stream = false;
-        }
-      } catch (_) { /* no JSON / no body */ }
+        parsed = await readJsonBody(req);
+      } catch (error) {
+        const status = error.status || 400;
+        const message = status === 413 ? "حجم الطلب أكبر من الحد المسموح." : "يجب إرسال JSON صالح.";
+        return send(res, status, JSON.stringify({ error: message }), {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store"
+        });
+      }
+      if (parsed && typeof parsed === "object" && parsed.stream === undefined) parsed.stream = false;
     }
-    const workerBody = JSON.stringify(parsed);
-    // نقل الترويسات مع تجاهل تلك التي يغيّرها إعادة التسلسل أو تحدّدها منصة Render
+
     const safeHeaders = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      const key = k.toLowerCase();
-      if (key === "host" || key === "content-length" || key === "transfer-encoding" || key === "connection") continue;
-      if (typeof v === "string") safeHeaders[key] = v;
+    for (const [key, value] of Object.entries(req.headers)) {
+      const name = key.toLowerCase();
+      if (["host", "content-length", "transfer-encoding", "connection"].includes(name)) continue;
+      if (typeof value === "string") safeHeaders[name] = value;
     }
+
     const workerReq = new Request(url, {
       method: req.method,
       headers: safeHeaders,
-      body: req.method === "GET" || req.method === "HEAD" ? null : workerBody
+      body: req.method === "GET" || req.method === "HEAD" ? null : JSON.stringify(parsed)
     });
+    const workerRes = await workerModule.default.fetch(workerReq, process.env);
+    const headers = {};
+    workerRes.headers.forEach((value, key) => {
+      if (!["connection", "transfer-encoding", "keep-alive", "upgrade"].includes(key.toLowerCase())) headers[key] = value;
+    });
+    res.writeHead(workerRes.status, { ...BASE_HEADERS, ...headers });
 
-    const workerRes = await workerModule.default.fetch(workerReq);
-
-    const outBody = workerRes.body;
-    const ctype = workerRes.headers.get("content-type") || "text/plain";
-    const headers = new Headers();
-    workerRes.headers.forEach((v, k) => { headers.set(k, v); });
-    res.writeHead(workerRes.status, { "content-type": ctype, ...Object.fromEntries(headers.entries()) });
-    if (outBody) {
-      const reader = outBody.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) res.write(value);
+    if (!workerRes.body || req.method === "HEAD") return res.end();
+    const reader = workerRes.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || res.destroyed) break;
+      if (value && !res.write(value)) {
+        await new Promise((resolveDrain) => res.once("drain", resolveDrain));
       }
     }
-    // مهم: إغلاق الرد دائماً. بدون هذا يبقى الاتصال معلّقاً (chunked بلا نهاية)
-    // فيبدو كل مسار /api/* «عالقاً» حتى مهلة العميل.
     res.end();
-  } catch (e) {
-    console.error("[server] error:", e);
-    try { res.writeHead(500, { "content-type": "text/plain" }); res.end("Internal Server Error"); } catch (_) {}
+  } catch (error) {
+    console.error("[server] request error:", error?.stack || error);
+    send(res, 500, JSON.stringify({ error: "Internal Server Error" }), {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    });
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`[server] CHIBANI AI is running on http://0.0.0.0:${PORT}`);
+server.requestTimeout = 120_000;
+server.headersTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[server] CHIBANI AI listening on 0.0.0.0:${PORT}`);
 });
+
+function shutdown(signal) {
+  console.log(`[server] ${signal}: graceful shutdown`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
