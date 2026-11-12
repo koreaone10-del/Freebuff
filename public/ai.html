@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#090b13">
+<title>Freebuff AI — AlphaCode</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/ai.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-icon">α</div><div><b>FREEBUFF AI</b><small>POWERED BY ALPHACODE</small></div><button class="icon-btn close-side" id="closeSide" aria-label="إغلاق القائمة">×</button></div>
+    <button class="new-chat" id="newChat">＋ محادثة جديدة</button>
+    <div class="side-label">مساحة العمل</div>
+    <button class="side-item active" data-mode="chat">◉ <span>المحادثة الذكية</span></button>
+    <button class="side-item" data-mode="code">⌘ <span>البرمجة وتنفيذ المهام</span></button>
+    <button class="side-item" data-mode="analysis">◈ <span>التحليل والملفات</span></button>
+    <button class="side-item" data-mode="research">⌕ <span>البحث عبر الويب</span></button>
+    <div class="side-label history-label">المحادثات الأخيرة</div><div id="history" class="history"></div>
+    <div class="sidebar-bottom"><span class="status-dot" id="statusDot"></span><span id="engineStatus">جارٍ فحص AlphaCode…</span><a href="/alphacode.html">استوديو الوكيل ↗</a></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button class="icon-btn" id="openSide" aria-label="القائمة">☰</button><div class="top-title"><b>Freebuff AI</b><span id="modeLabel">المحادثة الذكية</span></div><div class="top-actions"><span class="engine-pill"><i></i> AlphaCode</span><button class="icon-btn" id="clearChat" title="محادثة جديدة">＋</button></div></header>
+    <section class="workspace">
+      <div class="welcome" id="welcome"><div class="hero-mark">α</div><span class="eyebrow">YOUR AI WORKSPACE</span><h1>كيف يمكنني مساعدتك اليوم؟</h1><p>اسأل، حلّل، اكتب، ابحث أو اطلب تنفيذ مهمة برمجية بواسطة AlphaCode.</p>
+        <div class="quick-grid"><button data-sample="اشرح لي هذا الموضوع بطريقة مبسطة مع أمثلة عملية."><b>✦ اسأل وتعلّم</b><small>شرح ومعلومات وأفكار</small></button><button data-sample="حلّل بنية هذا المشروع، واكتشف نقاط الضعف، ثم اقترح خطة تطوير."><b>◈ تحليل مشروع</b><small>فهم الملفات والمشاريع</small></button><button data-sample="اكتب برنامجاً منظماً يحقق طلبي، أضف اختبارات واشرح طريقة التشغيل."><b>⌘ اكتب كوداً</b><small>برمجة وتصحيح وتطوير</small></button><button data-sample="ابحث عن معلومات حديثة حول الموضوع، وقارن المصادر الموثوقة وأرفق الروابط."><b>⌕ بحث ويب</b><small>بحث ومقارنة وتلخيص</small></button></div>
+      </div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <div class="working" id="working" hidden><span class="spinner"></span><div><b id="workingTitle">AlphaCode يعمل…</b><small id="workingStage">تحضير المهمة</small></div><button id="stopJob">إيقاف</button></div>
+      <div class="composer-wrap"><div class="mode-strip"><button class="mode-chip active" data-mode="chat">محادثة</button><button class="mode-chip" data-mode="code">برمجة</button><button class="mode-chip" data-mode="analysis">تحليل</button><button class="mode-chip" data-mode="research">بحث</button></div>
+        <div class="composer"><textarea id="prompt" rows="1" maxlength="8000" placeholder="اكتب رسالتك إلى Freebuff AI…"></textarea><div class="composer-tools"><div class="tool-left"><button id="attach" class="tool-btn">＋ إرفاق ملف</button><input id="files" type="file" multiple hidden accept=".txt,.md,.pdf,.csv,.json,.xml,.html,.css,.js,.ts,.py,.java,.kt,.rs,.go,.yml,.yaml,.toml,.log,.png,.jpg,.jpeg,.webp"><span id="fileNames" class="file-names"></span></div><button id="send" class="send-btn" aria-label="إرسال">↑</button></div></div>
+        <div class="composer-foot"><span id="counter">0 / 8000</span><span>قد يخطئ الذكاء الاصطناعي؛ راجع النتائج قبل اعتمادها.</span></div>
+      </div>
+    </section>
+    <section class="media-note"><div><b>مركز الصور والفيديو</b><p>واجهة المحادثة والبرمجة والتحليل تعمل عبر AlphaCode. توليد الصور والفيديو يحتاج محركات مستقلة؛ لم يتم تفعيلها بعد في هذا الإصدار.</p></div><div class="media-badges"><span>🖼️ الصور · غير موصول</span><span>🎬 الفيديو · غير موصول</span></div></section>
+  </main>
+</div>
+<div class="auth-overlay" id="auth"><form class="auth-box" id="authForm"><div class="brand-icon">α</div><h2>مساحة عمل خاصة</h2><p>أدخل كلمة مرور AlphaCode Studio المضبوطة في Render.</p><input id="password" type="password" placeholder="كلمة المرور" autocomplete="current-password" required><button>دخول</button><small id="authError"></small></form></div>
+<div class="toast" id="toast"></div>
+<script src="/ai.js"></script>
+</body></html>
