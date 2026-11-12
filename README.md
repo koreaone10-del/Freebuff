@@ -60,3 +60,8 @@ curl http://127.0.0.1:18765/api/flights
 ## AlphaCode Studio
 
 Freebuff includes a dedicated AlphaCode Studio at `/alphacode.html`. The integration installs the official upstream AlphaCode Rust CLI v1.1.3 during Render build, verifies the published SHA-256 checksum, and invokes its headless `alphacode run` command through a password-protected adapter. See [`docs/ALPHACODE-STUDIO.md`](docs/ALPHACODE-STUDIO.md) for architecture, limitations, persistence, and security notes. AlphaCode is an independent MIT-licensed project by Ali Essam; its upstream source is https://github.com/dragonked2/alphacode.
+
+
+## AlphaCode Studio 1.5.0
+
+The dedicated `/alphacode.html` workspace includes a responsive mobile navigation, a conversational agent composer with Chat/Code/Analysis/Research modes, and bounded file attachments. The installer is pinned to the published AlphaCode `v1.1.0` Linux x86_64 release. See `docs/RELEASE-NOTES-1.5.0.md` and `docs/ALPHACODE-STUDIO.md` for operational limitations.

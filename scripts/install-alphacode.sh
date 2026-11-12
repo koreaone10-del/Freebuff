@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="v1.1.3"
+VERSION="v1.1.0"
 ARCHIVE="alphacode-linux-x86_64.tar.gz"
 BASE="https://github.com/dragonked2/alphacode/releases/download/${VERSION}"
 TMP="$(mktemp -d)"
