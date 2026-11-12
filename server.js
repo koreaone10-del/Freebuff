@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { join, resolve, sep, extname } from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { handleAlphaCode } from "./alphacode-service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,6 +120,19 @@ const server = createServer(async (req, res) => {
         });
       }
       if (parsed && typeof parsed === "object" && parsed.stream === undefined) parsed.stream = false;
+    }
+
+    const alphaHeaders = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") alphaHeaders.set(key, value);
+    }
+    const alphaResponse = await handleAlphaCode({ url, method: req.method || "GET", body: parsed, headers: alphaHeaders, env: process.env });
+    if (alphaResponse) {
+      const alphaOutHeaders = {};
+      alphaResponse.headers.forEach((value, key) => { alphaOutHeaders[key] = value; });
+      res.writeHead(alphaResponse.status, { ...BASE_HEADERS, ...alphaOutHeaders });
+      res.end(await alphaResponse.text());
+      return;
     }
 
     const safeHeaders = {};

@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: npm install
+    buildCommand: npm install && npm run install:alphacode
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -13,3 +13,7 @@ services:
         value: production
       - key: MAX_BODY_BYTES
         value: "20971520"
+      - key: ALPHACODE_STUDIO_PASSWORD
+        generateValue: true
+      - key: ALPHACODE_DATA_DIR
+        value: /tmp/freebuff-alphacode

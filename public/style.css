@@ -656,3 +656,6 @@ textarea, input, select, button { font-family: inherit; }
   .skills { gap: 8px; margin-bottom: 14px; }
   .skill { padding: 10px 12px; }
 }
+
+/* AlphaCode Studio entry */
+.alphacode-nav{display:flex;flex-direction:column;gap:2px;text-decoration:none;color:#e8f4ff!important;border:1px solid rgba(110,231,245,.24);background:linear-gradient(100deg,rgba(110,231,245,.10),rgba(154,131,255,.12));padding:9px 12px;border-radius:10px;font-size:12px;font-weight:800;margin:4px 0;transition:.2s}.alphacode-nav:hover{border-color:rgba(110,231,245,.55);transform:translateY(-1px)}.alphacode-nav small{font-size:9px;color:var(--muted);font-weight:500}
